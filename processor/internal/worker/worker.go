@@ -5,13 +5,14 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/eduard256/imgable/processor/internal/config"
 	"github.com/eduard256/imgable/processor/internal/failed"
@@ -94,29 +95,30 @@ func (w *Worker) HandleProcessFile(ctx context.Context, task *asynq.Task) error 
 
 	log = log.WithField("id", fileID)
 
-	// Acquire advisory lock to prevent race condition with duplicate files.
-	// This ensures only one worker processes files with the same hash at a time.
-	lockID := hashToLockID(fileID)
-	if err := w.acquireAdvisoryLock(ctx, lockID); err != nil {
-		return w.handleError(ctx, filePath, "lock", err)
-	}
-	defer w.releaseAdvisoryLock(ctx, lockID)
-
-	// Check for duplicate in database (now protected by advisory lock)
-	exists, err := w.photoExists(ctx, fileID)
-	if err != nil {
-		return w.handleError(ctx, filePath, "duplicate_check", err)
-	}
-	if exists {
-		log.Info("duplicate found, deleting original")
-		w.cleanupOriginal(filePath)
-		return nil
-	}
-
-	// Determine file type
+	// Determine file type BEFORE reserving (needed for DB constraint)
 	fileType := fileutil.GetFileType(filePath)
 	if fileType == fileutil.FileTypeUnknown {
 		return w.handleError(ctx, filePath, "type_detection", fmt.Errorf("unsupported file type"))
+	}
+
+	// Convert to DB type string
+	var dbType string
+	if fileType == fileutil.FileTypeImage {
+		dbType = "photo"
+	} else {
+		dbType = "video"
+	}
+
+	// Atomically reserve this photo ID to prevent race conditions.
+	// If another worker already reserved it, this is a duplicate file.
+	reserved, err := w.reservePhotoID(ctx, fileID, filePath, dbType)
+	if err != nil {
+		return w.handleError(ctx, filePath, "reserve", err)
+	}
+	if !reserved {
+		log.Info("duplicate found, deleting original")
+		w.cleanupOriginal(filePath)
+		return nil
 	}
 
 	// Process based on type
@@ -133,14 +135,6 @@ func (w *Worker) HandleProcessFile(ctx context.Context, task *asynq.Task) error 
 
 	// Save to database
 	if err := w.savePhoto(ctx, photo); err != nil {
-		// If we hit a duplicate key error despite the lock, another worker
-		// might have processed this before we got the lock. Clean up and succeed.
-		if isDuplicateKeyError(err) {
-			log.Info("duplicate detected during insert, cleaning up")
-			w.cleanupPreviews(fileID)
-			w.cleanupOriginal(filePath)
-			return nil
-		}
 		return w.handleError(ctx, filePath, "database", err)
 	}
 
@@ -276,35 +270,67 @@ func (w *Worker) processVideo(ctx context.Context, filePath, fileID string) (*mo
 	return photo, nil
 }
 
-// photoExists checks if a photo with the given ID exists.
-func (w *Worker) photoExists(ctx context.Context, id string) (bool, error) {
-	var exists bool
-	err := w.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM photos WHERE id = $1)", id).Scan(&exists)
-	return exists, err
+// reservePhotoID attempts to atomically reserve a photo ID for processing.
+// Returns true if this worker reserved the ID (should process the file).
+// Returns false if the ID already exists (duplicate file, should skip).
+// This is an atomic operation that prevents race conditions between workers.
+func (w *Worker) reservePhotoID(ctx context.Context, fileID, filePath, fileType string) (bool, error) {
+	var reserved bool
+	err := w.db.QueryRow(ctx, `
+		INSERT INTO photos (id, type, status, original_path, created_at, updated_at)
+		VALUES ($1, $2, 'processing', $3, NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING
+		RETURNING TRUE
+	`, fileID, fileType, filePath).Scan(&reserved)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		// ON CONFLICT triggered - duplicate file
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return reserved, nil
 }
 
-// savePhoto inserts a photo record into the database.
+// savePhoto updates the reserved photo record with full data.
 func (w *Worker) savePhoto(ctx context.Context, photo *models.PhotoInsert) error {
 	query := `
-		INSERT INTO photos (
-			id, type, status, original_path, original_filename, taken_at,
-			created_at, updated_at, blurhash, width, height,
-			small_width, small_height, medium_width, medium_height, large_width, large_height,
-			size_original, size_small, size_medium, size_large,
-			duration_sec, video_codec,
-			camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length, flash,
-			gps_lat, gps_lon, gps_altitude, place_id,
-			comment, is_favorite
-		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			NOW(), NOW(), $7, $8, $9,
-			$10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21,
-			$22, $23, $24, $25, $26, $27, $28, $29,
-			$30, $31, $32, $33,
-			NULL, FALSE
-		)
+		UPDATE photos SET
+			type = $2,
+			status = $3,
+			original_path = $4,
+			original_filename = $5,
+			taken_at = $6,
+			updated_at = NOW(),
+			blurhash = $7,
+			width = $8,
+			height = $9,
+			small_width = $10,
+			small_height = $11,
+			medium_width = $12,
+			medium_height = $13,
+			large_width = $14,
+			large_height = $15,
+			size_original = $16,
+			size_small = $17,
+			size_medium = $18,
+			size_large = $19,
+			duration_sec = $20,
+			video_codec = $21,
+			camera_make = $22,
+			camera_model = $23,
+			lens = $24,
+			iso = $25,
+			aperture = $26,
+			shutter_speed = $27,
+			focal_length = $28,
+			flash = $29,
+			gps_lat = $30,
+			gps_lon = $31,
+			gps_altitude = $32,
+			place_id = $33
+		WHERE id = $1
 	`
 
 	return w.db.Exec(ctx, query,
@@ -394,51 +420,6 @@ func (w *Worker) cleanupPreviews(fileID string) {
 	// Try to remove empty directories
 	dir := fileutil.GetMediaDir(w.cfg.MediaDir, fileID)
 	fileutil.RemoveEmptyDirs(dir+"/dummy", w.cfg.MediaDir)
-}
-
-// acquireAdvisoryLock acquires a PostgreSQL advisory lock for the given lock ID.
-// This prevents race conditions when multiple workers try to process duplicate files.
-func (w *Worker) acquireAdvisoryLock(ctx context.Context, lockID int64) error {
-	// Use pg_advisory_lock which blocks until lock is acquired
-	return w.db.Exec(ctx, "SELECT pg_advisory_lock($1)", lockID)
-}
-
-// releaseAdvisoryLock releases a PostgreSQL advisory lock.
-func (w *Worker) releaseAdvisoryLock(ctx context.Context, lockID int64) {
-	if err := w.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID); err != nil {
-		w.logger.WithError(err).WithField("lock_id", lockID).Warn("failed to release advisory lock")
-	}
-}
-
-// hashToLockID converts a file hash string to an int64 for use as advisory lock ID.
-func hashToLockID(hash string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(hash))
-	return int64(h.Sum64())
-}
-
-// isDuplicateKeyError checks if an error is a PostgreSQL duplicate key violation.
-func isDuplicateKeyError(err error) bool {
-	if err == nil {
-		return false
-	}
-	// PostgreSQL error code 23505 is unique_violation
-	errStr := err.Error()
-	return contains(errStr, "23505") || contains(errStr, "duplicate key") || contains(errStr, "unique constraint")
-}
-
-// contains checks if s contains substr (simple helper to avoid strings import).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
-}
-
-func containsAt(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // HandleFinalFailure is called when all retries are exhausted.

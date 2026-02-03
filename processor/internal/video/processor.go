@@ -217,7 +217,7 @@ func (p *Processor) extractThumbnail(inputPath, outputPath string, durationSec i
 	scaleFilter := fmt.Sprintf("scale='min(%d,iw)':min'(%d,ih)':force_original_aspect_ratio=decrease",
 		p.config.ThumbnailPx, p.config.ThumbnailPx)
 
-	// Create temp file for output
+	// Create temp file for output (use .tmp extension, but specify format explicitly)
 	tempPath := outputPath + ".tmp"
 
 	cmd := exec.Command("ffmpeg",
@@ -229,6 +229,7 @@ func (p *Processor) extractThumbnail(inputPath, outputPath string, durationSec i
 		"-c:v", "libwebp",              // WebP codec
 		"-quality", strconv.Itoa(p.config.Quality), // Quality
 		"-lossless", "0",               // Lossy compression
+		"-f", "webp",                   // Force WebP format (extension is .tmp)
 		tempPath,
 	)
 
