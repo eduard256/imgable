@@ -115,11 +115,15 @@ func GetRequestID(ctx context.Context) string {
 }
 
 // CORS returns middleware that handles CORS headers.
-// For self-hosted single-origin setup, this is minimal.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow same-origin requests (default browser behavior)
-		// No CORS headers needed for same-origin
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 
 		// Handle preflight requests
 		if r.Method == http.MethodOptions {

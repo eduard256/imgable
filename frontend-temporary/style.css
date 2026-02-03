@@ -1,0 +1,109 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #f5f5f5; }
+a { color: #0066cc; }
+button { cursor: pointer; padding: 8px 16px; }
+input { padding: 8px; border: 1px solid #ccc; }
+
+/* Layout */
+.header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: #fff; border-bottom: 1px solid #ddd; }
+.header-left { display: flex; align-items: center; gap: 20px; }
+.header h1 { font-size: 20px; }
+.nav { display: flex; gap: 15px; }
+.nav a { text-decoration: none; padding: 5px 10px; }
+.nav a.active { background: #eee; border-radius: 4px; }
+.header-right { display: flex; gap: 10px; align-items: center; }
+.sync-indicator { width: 10px; height: 10px; border-radius: 50%; }
+.sync-indicator.ok { background: #0c0; }
+.sync-indicator.error { background: #c00; }
+
+.container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+/* Login */
+.login-page { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 20px; }
+.login-page h1 { font-size: 32px; }
+.login-form { display: flex; flex-direction: column; gap: 10px; width: 300px; }
+.login-form input { font-size: 16px; }
+.login-form button { font-size: 16px; }
+.login-error { color: red; }
+
+/* Gallery */
+.gallery-controls { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+.gallery-controls select, .gallery-controls input { padding: 6px; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
+.photo-item { aspect-ratio: 1; overflow: hidden; cursor: pointer; position: relative; background: #ddd; }
+.photo-item img { width: 100%; height: 100%; object-fit: cover; }
+.photo-item.video::after { content: "▶"; position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.7); color: #fff; padding: 2px 6px; font-size: 12px; border-radius: 3px; }
+.photo-item .duration { position: absolute; bottom: 5px; left: 5px; background: rgba(0,0,0,0.7); color: #fff; padding: 2px 6px; font-size: 11px; border-radius: 3px; }
+.month-header { grid-column: 1 / -1; padding: 15px 0 5px; font-weight: bold; border-bottom: 1px solid #ddd; margin-bottom: 10px; }
+.load-more { grid-column: 1 / -1; text-align: center; padding: 20px; }
+
+/* Photo Modal */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; flex-direction: column; }
+.modal-header { display: flex; justify-content: space-between; padding: 10px 20px; color: #fff; }
+.modal-content { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.modal-content img, .modal-content video { max-width: 90%; max-height: 80vh; object-fit: contain; }
+.modal-footer { padding: 15px 20px; background: #222; color: #fff; }
+.modal-actions { display: flex; gap: 10px; margin-bottom: 15px; }
+.modal-actions button { background: #444; color: #fff; border: none; padding: 8px 15px; border-radius: 4px; }
+.modal-comment { display: flex; gap: 10px; margin-bottom: 15px; }
+.modal-comment input { flex: 1; }
+.modal-meta { font-size: 13px; color: #aaa; }
+.modal-meta div { margin: 3px 0; }
+.modal-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.2); color: #fff; border: none; padding: 20px 15px; font-size: 24px; cursor: pointer; }
+.modal-nav.prev { left: 10px; }
+.modal-nav.next { right: 10px; }
+.close-btn { background: none; border: none; color: #fff; font-size: 30px; cursor: pointer; }
+
+/* Albums */
+.albums-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.albums-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+.album-card { background: #fff; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; cursor: pointer; }
+.album-card-cover { aspect-ratio: 4/3; background: #eee; display: flex; align-items: center; justify-content: center; font-size: 48px; }
+.album-card-cover img { width: 100%; height: 100%; object-fit: cover; }
+.album-card-info { padding: 10px; }
+.album-card-info h3 { font-size: 14px; margin-bottom: 5px; }
+.album-card-info span { font-size: 12px; color: #666; }
+
+/* Album View */
+.album-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+.album-header h2 { display: flex; align-items: center; gap: 10px; }
+.album-actions { display: flex; gap: 10px; }
+.back-link { text-decoration: none; font-size: 20px; }
+
+/* Places / Map */
+#map { height: 500px; border-radius: 4px; }
+.places-list { margin-top: 20px; }
+.place-item { padding: 10px; background: #fff; border: 1px solid #ddd; margin-bottom: 5px; cursor: pointer; display: flex; justify-content: space-between; }
+
+/* Sync Status */
+.sync-section { background: #fff; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; }
+.sync-section h3 { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+.sync-row { display: flex; justify-content: space-between; padding: 5px 0; }
+.sync-actions { margin-top: 10px; display: flex; gap: 10px; }
+.error-list { max-height: 200px; overflow-y: auto; }
+.error-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #fff0f0; border: 1px solid #fcc; margin-bottom: 5px; }
+
+/* Share View */
+.share-page { text-align: center; padding: 40px 20px; }
+.share-page h1 { margin-bottom: 20px; }
+.share-password-form { max-width: 300px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+
+/* Add to album modal */
+.album-select-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 4px; z-index: 1001; min-width: 300px; max-height: 400px; overflow-y: auto; }
+.album-select-modal h3 { margin-bottom: 15px; }
+.album-select-item { padding: 10px; border: 1px solid #ddd; margin-bottom: 5px; cursor: pointer; }
+.album-select-item:hover { background: #f0f0f0; }
+
+/* Create album modal */
+.create-album-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 4px; z-index: 1001; min-width: 300px; }
+.create-album-modal h3 { margin-bottom: 15px; }
+.create-album-modal input { width: 100%; margin-bottom: 10px; }
+.create-album-modal .buttons { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* Share modal */
+.share-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 4px; z-index: 1001; min-width: 350px; }
+.share-modal h3 { margin-bottom: 15px; }
+.share-modal .share-url { display: flex; gap: 10px; margin-bottom: 15px; }
+.share-modal .share-url input { flex: 1; }
+.share-modal .share-options { margin-bottom: 15px; }
+.share-modal .share-options label { display: block; margin-bottom: 5px; }
