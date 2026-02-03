@@ -21,20 +21,14 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Copy shared module first (for better caching)
-COPY shared/go.mod shared/go.sum* ./shared/
-RUN cd shared && go mod download
-
-# Copy processor module
-COPY processor/go.mod processor/go.sum* ./processor/
-RUN cd processor && go mod download
-
-# Copy source code
+# Copy all source code
 COPY shared/ ./shared/
 COPY processor/ ./processor/
 
-# Build the binary with CGO enabled (required for govips)
-RUN cd processor && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+# Download dependencies and build with CGO enabled (required for govips)
+RUN cd shared && go mod tidy && \
+    cd ../processor && go mod tidy && \
+    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s" \
     -o /processor \
     ./cmd

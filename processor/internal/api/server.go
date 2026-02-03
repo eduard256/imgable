@@ -335,6 +335,6 @@ func (s *Server) handleDeleteFailed(w http.ResponseWriter, r *http.Request) {
 
 func parseInt(s string) (int, error) {
 	var n int
-	_, err := json.Unmarshal([]byte(s), &n)
+	err := json.Unmarshal([]byte(s), &n)
 	return n, err
 }

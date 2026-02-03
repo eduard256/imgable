@@ -14,20 +14,14 @@ RUN apk add --no-cache git ca-certificates tzdata
 # Set working directory
 WORKDIR /app
 
-# Copy shared module first (for better caching)
-COPY shared/go.mod shared/go.sum* ./shared/
-RUN cd shared && go mod download
-
-# Copy scanner module
-COPY scanner/go.mod scanner/go.sum* ./scanner/
-RUN cd scanner && go mod download
-
-# Copy source code
+# Copy all source code
 COPY shared/ ./shared/
 COPY scanner/ ./scanner/
 
-# Build the binary
-RUN cd scanner && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Download dependencies and build
+RUN cd shared && go mod tidy && \
+    cd ../scanner && go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s" \
     -o /scanner \
     ./cmd

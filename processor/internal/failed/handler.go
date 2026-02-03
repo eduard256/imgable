@@ -95,7 +95,6 @@ func (h *Handler) uniqueFilename(path string) string {
 		return path
 	}
 
-	dir := filepath.Dir(path)
 	ext := filepath.Ext(path)
 	base := path[:len(path)-len(ext)]
 

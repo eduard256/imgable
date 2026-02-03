@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/eduard256/imgable/processor/internal/config"
 	"github.com/eduard256/imgable/processor/internal/failed"

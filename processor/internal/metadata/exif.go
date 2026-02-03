@@ -71,11 +71,9 @@ func (e *Extractor) Extract(path string) (*ImageMetadata, error) {
 
 	x, err := exif.Decode(file)
 	if err != nil {
-		// No EXIF data is not an error
-		if err == exif.ErrNoExif {
-			return nil, nil
-		}
-		e.logger.WithError(err).WithField("path", path).Debug("failed to decode EXIF")
+		// No EXIF or corrupted EXIF - continue without metadata
+		// This is not an error, many images (screenshots, web images) don't have EXIF
+		e.logger.WithField("path", path).Debug("no EXIF data available")
 		return nil, nil
 	}
 
