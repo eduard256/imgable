@@ -1,0 +1,500 @@
+// Package handlers provides photo-related HTTP handlers.
+package handlers
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/imgable/api/internal/auth"
+	"github.com/imgable/api/internal/config"
+	"github.com/imgable/api/internal/response"
+	"github.com/imgable/api/internal/storage"
+)
+
+// PhotosHandler handles photo-related endpoints.
+type PhotosHandler struct {
+	storage *storage.Storage
+	config  *config.Config
+	logger  *slog.Logger
+}
+
+// NewPhotosHandler creates a new PhotosHandler.
+func NewPhotosHandler(store *storage.Storage, cfg *config.Config, logger *slog.Logger) *PhotosHandler {
+	return &PhotosHandler{
+		storage: store,
+		config:  cfg,
+		logger:  logger,
+	}
+}
+
+// PhotoListResponse represents the response for listing photos.
+type PhotoListResponse struct {
+	Photos     []PhotoItem `json:"photos"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+	HasMore    bool        `json:"has_more"`
+}
+
+// PhotoItem represents a photo in the list response.
+// Optimized for minimal size (~100 bytes per photo).
+type PhotoItem struct {
+	ID         string  `json:"id"`
+	Type       string  `json:"type"`
+	Blurhash   *string `json:"blurhash,omitempty"`
+	Small      string  `json:"small"`
+	Width      int     `json:"w"`
+	Height     int     `json:"h"`
+	TakenAt    *int64  `json:"taken_at,omitempty"` // Unix timestamp for smaller JSON
+	IsFavorite bool    `json:"is_favorite"`
+	Duration   *int    `json:"duration,omitempty"`
+}
+
+// GroupsResponse represents photo groups response.
+type GroupsResponse struct {
+	Groups []storage.PhotoGroup `json:"groups"`
+	Total  int                  `json:"total"`
+}
+
+// GetGroups handles GET /api/v1/photos/groups.
+// Returns photo counts grouped by month.
+func (h *PhotosHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
+	photoType := r.URL.Query().Get("type")
+
+	groups, total, err := h.storage.GetPhotoGroups(r.Context(), photoType)
+	if err != nil {
+		h.logger.Error("failed to get photo groups", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OK(w, GroupsResponse{
+		Groups: groups,
+		Total:  total,
+	})
+}
+
+// List handles GET /api/v1/photos.
+// Returns paginated list of photos with cursor-based pagination.
+func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	params := storage.PhotoListParams{
+		Limit:  parseIntParam(r, "limit", 100),
+		Month:  r.URL.Query().Get("month"),
+		Type:   r.URL.Query().Get("type"),
+		Sort:   r.URL.Query().Get("sort"),
+		Order:  r.URL.Query().Get("order"),
+	}
+
+	// Parse cursor
+	if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
+		params.Cursor = storage.DecodeCursor(cursorStr)
+	}
+
+	// Parse favorite filter
+	if favStr := r.URL.Query().Get("favorite"); favStr != "" {
+		fav := favStr == "true" || favStr == "1"
+		params.Favorite = &fav
+	}
+
+	// Fetch photos
+	photos, nextCursor, err := h.storage.ListPhotos(r.Context(), params)
+	if err != nil {
+		h.logger.Error("failed to list photos", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	// Get token for generating URLs
+	token := auth.GetToken(r.Context())
+
+	// Build response
+	items := make([]PhotoItem, len(photos))
+	for i, p := range photos {
+		items[i] = PhotoItem{
+			ID:         p.ID,
+			Type:       p.Type,
+			Blurhash:   p.Blurhash,
+			Small:      h.photoURL(p.ID, "s", token),
+			Width:      p.Width,
+			Height:     p.Height,
+			IsFavorite: p.IsFavorite,
+			Duration:   p.Duration,
+		}
+		if p.TakenAt != nil {
+			ts := p.TakenAt.Unix()
+			items[i].TakenAt = &ts
+		}
+	}
+
+	resp := PhotoListResponse{
+		Photos:  items,
+		HasMore: nextCursor != nil,
+	}
+	if nextCursor != nil {
+		resp.NextCursor = storage.EncodeCursor(nextCursor)
+	}
+
+	response.OK(w, resp)
+}
+
+// PhotoDetailResponse represents full photo details.
+type PhotoDetailResponse struct {
+	ID               string                  `json:"id"`
+	Type             string                  `json:"type"`
+	Blurhash         *string                 `json:"blurhash,omitempty"`
+	URLs             PhotoURLs               `json:"urls"`
+	Width            *int                    `json:"width,omitempty"`
+	Height           *int                    `json:"height,omitempty"`
+	SizeBytes        *int                    `json:"size_bytes,omitempty"`
+	TakenAt          *int64                  `json:"taken_at,omitempty"`
+	CreatedAt        int64                   `json:"created_at"`
+	IsFavorite       bool                    `json:"is_favorite"`
+	Comment          *string                 `json:"comment,omitempty"`
+	OriginalFilename *string                 `json:"original_filename,omitempty"`
+	DurationSec      *int                    `json:"duration_sec,omitempty"`
+	VideoCodec       *string                 `json:"video_codec,omitempty"`
+	EXIF             *PhotoEXIF              `json:"exif,omitempty"`
+	GPS              *PhotoGPS               `json:"gps,omitempty"`
+	Place            *PhotoPlace             `json:"place,omitempty"`
+	Albums           []PhotoAlbum            `json:"albums,omitempty"`
+}
+
+// PhotoURLs contains URLs for different photo sizes.
+type PhotoURLs struct {
+	Small  string `json:"small"`
+	Medium string `json:"medium,omitempty"`
+	Large  string `json:"large,omitempty"`
+	Video  string `json:"video,omitempty"`
+}
+
+// PhotoEXIF contains EXIF metadata.
+type PhotoEXIF struct {
+	CameraMake   *string  `json:"camera_make,omitempty"`
+	CameraModel  *string  `json:"camera_model,omitempty"`
+	Lens         *string  `json:"lens,omitempty"`
+	ISO          *int     `json:"iso,omitempty"`
+	Aperture     *float64 `json:"aperture,omitempty"`
+	ShutterSpeed *string  `json:"shutter_speed,omitempty"`
+	FocalLength  *float64 `json:"focal_length,omitempty"`
+	Flash        *bool    `json:"flash,omitempty"`
+}
+
+// PhotoGPS contains GPS coordinates.
+type PhotoGPS struct {
+	Lat      *float64 `json:"lat,omitempty"`
+	Lon      *float64 `json:"lon,omitempty"`
+	Altitude *float64 `json:"altitude,omitempty"`
+}
+
+// PhotoPlace contains place information.
+type PhotoPlace struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	City    *string `json:"city,omitempty"`
+	Country *string `json:"country,omitempty"`
+}
+
+// PhotoAlbum contains album reference.
+type PhotoAlbum struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Get handles GET /api/v1/photos/:id.
+// Returns full photo details.
+func (h *PhotosHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	photo, err := h.storage.GetPhoto(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to get photo", slog.Any("error", err), slog.String("id", id))
+		response.InternalError(w)
+		return
+	}
+	if photo == nil {
+		response.NotFound(w, "photo not found")
+		return
+	}
+
+	token := auth.GetToken(r.Context())
+
+	// Build response
+	resp := PhotoDetailResponse{
+		ID:               photo.ID,
+		Type:             photo.Type,
+		Blurhash:         photo.Blurhash,
+		Width:            photo.Width,
+		Height:           photo.Height,
+		SizeBytes:        photo.SizeOriginal,
+		CreatedAt:        photo.CreatedAt.Unix(),
+		IsFavorite:       photo.IsFavorite,
+		Comment:          photo.Comment,
+		OriginalFilename: photo.OriginalFilename,
+		DurationSec:      photo.DurationSec,
+		VideoCodec:       photo.VideoCodec,
+	}
+
+	if photo.TakenAt != nil {
+		ts := photo.TakenAt.Unix()
+		resp.TakenAt = &ts
+	}
+
+	// Build URLs
+	resp.URLs = PhotoURLs{
+		Small: h.photoURL(photo.ID, "s", token),
+	}
+	if photo.Type == "photo" {
+		resp.URLs.Medium = h.photoURL(photo.ID, "m", token)
+		resp.URLs.Large = h.photoURL(photo.ID, "l", token)
+	} else {
+		resp.URLs.Video = h.videoURL(photo.ID, token)
+	}
+
+	// Build EXIF if any field is present
+	if photo.CameraMake != nil || photo.CameraModel != nil || photo.ISO != nil {
+		resp.EXIF = &PhotoEXIF{
+			CameraMake:   photo.CameraMake,
+			CameraModel:  photo.CameraModel,
+			Lens:         photo.Lens,
+			ISO:          photo.ISO,
+			Aperture:     photo.Aperture,
+			ShutterSpeed: photo.ShutterSpeed,
+			FocalLength:  photo.FocalLength,
+			Flash:        photo.Flash,
+		}
+	}
+
+	// Build GPS if present
+	if photo.GPSLat != nil && photo.GPSLon != nil {
+		resp.GPS = &PhotoGPS{
+			Lat:      photo.GPSLat,
+			Lon:      photo.GPSLon,
+			Altitude: photo.GPSAltitude,
+		}
+	}
+
+	// Get place if linked
+	if photo.PlaceID != nil {
+		place, err := h.storage.GetPlace(r.Context(), *photo.PlaceID)
+		if err == nil && place != nil {
+			resp.Place = &PhotoPlace{
+				ID:      place.ID,
+				Name:    place.Name,
+				City:    place.City,
+				Country: place.Country,
+			}
+		}
+	}
+
+	// Get albums containing this photo
+	albums, err := h.storage.GetPhotoAlbums(r.Context(), id)
+	if err == nil && len(albums) > 0 {
+		resp.Albums = make([]PhotoAlbum, len(albums))
+		for i, a := range albums {
+			resp.Albums[i] = PhotoAlbum{ID: a.ID, Name: a.Name}
+		}
+	}
+
+	response.OK(w, resp)
+}
+
+// UpdateRequest represents a photo update request.
+type UpdateRequest struct {
+	Comment *string `json:"comment"`
+}
+
+// Update handles PATCH /api/v1/photos/:id.
+// Updates the photo comment.
+func (h *PhotosHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	// Check if photo exists
+	exists, err := h.storage.PhotoExists(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to check photo", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+	if !exists {
+		response.NotFound(w, "photo not found")
+		return
+	}
+
+	if err := h.storage.UpdatePhotoComment(r.Context(), id, req.Comment); err != nil {
+		h.logger.Error("failed to update photo", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OKStatus(w)
+}
+
+// Delete handles DELETE /api/v1/photos/:id.
+// Deletes a single photo.
+func (h *PhotosHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	photo, err := h.storage.DeletePhoto(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to delete photo", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+	if photo == nil {
+		response.NotFound(w, "photo not found")
+		return
+	}
+
+	// Delete files from disk
+	h.deletePhotoFiles(photo)
+
+	response.OKStatus(w)
+}
+
+// BulkDeleteRequest represents bulk delete request.
+type BulkDeleteRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// BulkDeleteResponse represents bulk delete response.
+type BulkDeleteResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// BulkDelete handles DELETE /api/v1/photos.
+// Deletes multiple photos at once.
+func (h *PhotosHandler) BulkDelete(w http.ResponseWriter, r *http.Request) {
+	var req BulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		response.BadRequest(w, "ids is required")
+		return
+	}
+
+	if len(req.IDs) > 100 {
+		response.BadRequest(w, "maximum 100 photos per request")
+		return
+	}
+
+	photos, err := h.storage.DeletePhotos(r.Context(), req.IDs)
+	if err != nil {
+		h.logger.Error("failed to delete photos", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	// Delete files from disk
+	for _, photo := range photos {
+		h.deletePhotoFiles(&photo)
+	}
+
+	response.OK(w, BulkDeleteResponse{Deleted: len(photos)})
+}
+
+// AddFavorite handles POST /api/v1/photos/:id/favorite.
+func (h *PhotosHandler) AddFavorite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	exists, err := h.storage.PhotoExists(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to check photo", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+	if !exists {
+		response.NotFound(w, "photo not found")
+		return
+	}
+
+	if err := h.storage.SetPhotoFavorite(r.Context(), id, true); err != nil {
+		h.logger.Error("failed to add favorite", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OK(w, map[string]interface{}{"status": "ok", "is_favorite": true})
+}
+
+// RemoveFavorite handles DELETE /api/v1/photos/:id/favorite.
+func (h *PhotosHandler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	exists, err := h.storage.PhotoExists(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to check photo", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+	if !exists {
+		response.NotFound(w, "photo not found")
+		return
+	}
+
+	if err := h.storage.SetPhotoFavorite(r.Context(), id, false); err != nil {
+		h.logger.Error("failed to remove favorite", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OK(w, map[string]interface{}{"status": "ok", "is_favorite": false})
+}
+
+// photoURL generates a URL for a photo preview.
+func (h *PhotosHandler) photoURL(id, size, token string) string {
+	return fmt.Sprintf("/photos/%s/%s/%s_%s.webp?token=%s",
+		id[:2], id[2:4], id, size, token)
+}
+
+// videoURL generates a URL for a video file.
+func (h *PhotosHandler) videoURL(id, token string) string {
+	// Note: video extension is determined by the file handler
+	return fmt.Sprintf("/photos/%s/%s/%s.mp4?token=%s",
+		id[:2], id[2:4], id, token)
+}
+
+// deletePhotoFiles removes photo files from disk.
+func (h *PhotosHandler) deletePhotoFiles(photo *storage.Photo) {
+	basePath := filepath.Join(h.config.MediaPath, photo.ID[:2], photo.ID[2:4])
+
+	// Delete previews
+	os.Remove(filepath.Join(basePath, photo.ID+"_s.webp"))
+	if photo.Type == "photo" {
+		os.Remove(filepath.Join(basePath, photo.ID+"_m.webp"))
+		os.Remove(filepath.Join(basePath, photo.ID+"_l.webp"))
+	}
+
+	// Delete video original
+	if photo.Type == "video" {
+		// Try common extensions
+		os.Remove(filepath.Join(basePath, photo.ID+".mp4"))
+		os.Remove(filepath.Join(basePath, photo.ID+".mov"))
+		os.Remove(filepath.Join(basePath, photo.ID+".avi"))
+		os.Remove(filepath.Join(basePath, photo.ID+".mkv"))
+		os.Remove(filepath.Join(basePath, photo.ID+".webm"))
+	}
+}
+
+// parseIntParam parses an integer query parameter with default.
+func parseIntParam(r *http.Request, name string, defaultVal int) int {
+	if val := r.URL.Query().Get(name); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultVal
+}
