@@ -23,6 +23,9 @@
 /scanner/scanner
 /processor/processor
 /api/api
+/api/main
+**/main
+!**/main.go
 
 # Test binary
 *.test
@@ -87,3 +90,8 @@ temp/
 /uploads/
 /media/
 /failed/
+
+# -----------------------------------------------------------------------------
+# Claude Code plans (auto-generated)
+# -----------------------------------------------------------------------------
+.claude/
