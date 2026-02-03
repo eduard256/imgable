@@ -181,8 +181,8 @@ async function renderGallery() {
 
     await loadPhotos();
 
-    $('#sort').onchange = loadPhotos;
-    $('#filter').onchange = loadPhotos;
+    $('#sort').onchange = () => loadPhotos();
+    $('#filter').onchange = () => loadPhotos();
 }
 
 async function loadPhotos(cursor = null) {

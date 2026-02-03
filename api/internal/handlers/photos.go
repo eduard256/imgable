@@ -252,7 +252,8 @@ func (h *PhotosHandler) Get(w http.ResponseWriter, r *http.Request) {
 		resp.URLs.Medium = h.photoURL(photo.ID, "m", token)
 		resp.URLs.Large = h.photoURL(photo.ID, "l", token)
 	} else {
-		resp.URLs.Video = h.videoURL(photo.ID, token)
+		ext := getVideoExtension(photo.OriginalFilename)
+		resp.URLs.Video = h.videoURL(photo.ID, ext, token)
 	}
 
 	// Build EXIF if any field is present
@@ -461,10 +462,22 @@ func (h *PhotosHandler) photoURL(id, size, token string) string {
 }
 
 // videoURL generates a URL for a video file.
-func (h *PhotosHandler) videoURL(id, token string) string {
-	// Note: video extension is determined by the file handler
-	return fmt.Sprintf("/photos/%s/%s/%s.mp4?token=%s",
-		id[:2], id[2:4], id, token)
+func (h *PhotosHandler) videoURL(id, ext, token string) string {
+	return fmt.Sprintf("/photos/%s/%s/%s%s?token=%s",
+		id[:2], id[2:4], id, ext, token)
+}
+
+// getVideoExtension extracts video extension from original filename.
+// Returns ".mp4" as default if extension cannot be determined.
+func getVideoExtension(filename *string) string {
+	if filename == nil || *filename == "" {
+		return ".mp4"
+	}
+	ext := filepath.Ext(*filename)
+	if ext == "" {
+		return ".mp4"
+	}
+	return ext
 }
 
 // deletePhotoFiles removes photo files from disk.
