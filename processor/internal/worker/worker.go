@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"time"
@@ -93,7 +94,15 @@ func (w *Worker) HandleProcessFile(ctx context.Context, task *asynq.Task) error 
 
 	log = log.WithField("id", fileID)
 
-	// Check for duplicate in database
+	// Acquire advisory lock to prevent race condition with duplicate files.
+	// This ensures only one worker processes files with the same hash at a time.
+	lockID := hashToLockID(fileID)
+	if err := w.acquireAdvisoryLock(ctx, lockID); err != nil {
+		return w.handleError(ctx, filePath, "lock", err)
+	}
+	defer w.releaseAdvisoryLock(ctx, lockID)
+
+	// Check for duplicate in database (now protected by advisory lock)
 	exists, err := w.photoExists(ctx, fileID)
 	if err != nil {
 		return w.handleError(ctx, filePath, "duplicate_check", err)
@@ -124,6 +133,14 @@ func (w *Worker) HandleProcessFile(ctx context.Context, task *asynq.Task) error 
 
 	// Save to database
 	if err := w.savePhoto(ctx, photo); err != nil {
+		// If we hit a duplicate key error despite the lock, another worker
+		// might have processed this before we got the lock. Clean up and succeed.
+		if isDuplicateKeyError(err) {
+			log.Info("duplicate detected during insert, cleaning up")
+			w.cleanupPreviews(fileID)
+			w.cleanupOriginal(filePath)
+			return nil
+		}
 		return w.handleError(ctx, filePath, "database", err)
 	}
 
@@ -359,6 +376,69 @@ func (w *Worker) cleanupOriginal(filePath string) {
 	if err := fileutil.RemoveEmptyDirs(filePath, w.cfg.UploadsDir); err != nil {
 		w.logger.WithError(err).Debug("failed to remove empty directories")
 	}
+}
+
+// cleanupPreviews removes generated preview files for a photo ID.
+// Used when we detect a duplicate after previews were already created.
+func (w *Worker) cleanupPreviews(fileID string) {
+	suffixes := []string{"_s.webp", "_m.webp", "_l.webp", ".mp4", ".mov", ".avi", ".mkv", ".webm"}
+	for _, suffix := range suffixes {
+		path := fileutil.GetMediaPath(w.cfg.MediaDir, fileID, suffix)
+		if fileutil.FileExists(path) {
+			if err := os.Remove(path); err != nil {
+				w.logger.WithError(err).WithField("path", path).Debug("failed to cleanup preview")
+			}
+		}
+	}
+
+	// Try to remove empty directories
+	dir := fileutil.GetMediaDir(w.cfg.MediaDir, fileID)
+	fileutil.RemoveEmptyDirs(dir+"/dummy", w.cfg.MediaDir)
+}
+
+// acquireAdvisoryLock acquires a PostgreSQL advisory lock for the given lock ID.
+// This prevents race conditions when multiple workers try to process duplicate files.
+func (w *Worker) acquireAdvisoryLock(ctx context.Context, lockID int64) error {
+	// Use pg_advisory_lock which blocks until lock is acquired
+	return w.db.Exec(ctx, "SELECT pg_advisory_lock($1)", lockID)
+}
+
+// releaseAdvisoryLock releases a PostgreSQL advisory lock.
+func (w *Worker) releaseAdvisoryLock(ctx context.Context, lockID int64) {
+	if err := w.db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID); err != nil {
+		w.logger.WithError(err).WithField("lock_id", lockID).Warn("failed to release advisory lock")
+	}
+}
+
+// hashToLockID converts a file hash string to an int64 for use as advisory lock ID.
+func hashToLockID(hash string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(hash))
+	return int64(h.Sum64())
+}
+
+// isDuplicateKeyError checks if an error is a PostgreSQL duplicate key violation.
+func isDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// PostgreSQL error code 23505 is unique_violation
+	errStr := err.Error()
+	return contains(errStr, "23505") || contains(errStr, "duplicate key") || contains(errStr, "unique constraint")
+}
+
+// contains checks if s contains substr (simple helper to avoid strings import).
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
+}
+
+func containsAt(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // HandleFinalFailure is called when all retries are exhausted.
