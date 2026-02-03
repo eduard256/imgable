@@ -55,7 +55,7 @@ EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost:8001/health || exit 1
+    CMD wget -q -O /dev/null http://localhost:8001/health || exit 1
 
 # Run scanner
 CMD ["scanner"]

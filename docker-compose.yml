@@ -1,5 +1,3 @@
-version: '3.8'
-
 # =============================================================================
 # IMGABLE - Family Photo Gallery
 # Docker Compose configuration for sync services
@@ -120,7 +118,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8001/health"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -191,7 +189,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8002/health"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8002/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
