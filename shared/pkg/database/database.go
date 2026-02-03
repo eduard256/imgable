@@ -72,9 +72,6 @@ func New(ctx context.Context, cfg Config, log *logger.Logger) (*DB, error) {
 	poolConfig.HealthCheckPeriod = cfg.HealthCheckPeriod
 	poolConfig.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
 
-	// Configure connection settings for better error messages
-	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
 	// Create the pool
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {

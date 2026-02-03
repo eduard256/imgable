@@ -314,7 +314,8 @@ func (w *Worker) createEvent(ctx context.Context, photoID, photoType string) err
 	}
 
 	query := `INSERT INTO events (type, payload, created_at) VALUES ($1, $2, $3)`
-	return w.db.Exec(ctx, query, event.Type, event.Payload, event.CreatedAt)
+	// Convert json.RawMessage to string for SimpleProtocol compatibility
+	return w.db.Exec(ctx, query, event.Type, string(event.Payload), event.CreatedAt)
 }
 
 // handleError handles processing errors with retry logic.
