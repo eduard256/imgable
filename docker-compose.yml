@@ -1,0 +1,209 @@
+version: '3.8'
+
+# =============================================================================
+# IMGABLE - Family Photo Gallery
+# Docker Compose configuration for sync services
+# =============================================================================
+
+networks:
+  internal:
+    driver: bridge
+    name: imgable-network
+
+volumes:
+  postgres_data:
+    name: imgable-postgres-data
+  redis_data:
+    name: imgable-redis-data
+
+services:
+  # ===========================================================================
+  # PostgreSQL Database
+  # Stores all metadata, albums, places, and events
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: imgable-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: imgable
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-imgable}
+      POSTGRES_DB: imgable
+      # Performance tuning for photo gallery workload
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imgable -d imgable"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ===========================================================================
+  # Redis
+  # Task queue (Asynq) and pub/sub for real-time events
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: imgable-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --tcp-keepalive 300
+      --timeout 0
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  # ===========================================================================
+  # Scanner Service
+  # Watches /uploads directory for new files and queues them for processing
+  # Single instance - only one scanner should watch the directory
+  # ===========================================================================
+  scanner:
+    build:
+      context: .
+      dockerfile: scanner/Dockerfile
+    container_name: imgable-scanner
+    restart: unless-stopped
+    environment:
+      # Redis connection
+      REDIS_URL: redis://redis:6379
+      # Scanner configuration
+      UPLOADS_DIR: /uploads
+      SCAN_INTERVAL_SEC: ${SCAN_INTERVAL_SEC:-60}
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      # API server
+      API_PORT: "8001"
+    volumes:
+      # Read-only access to uploads - scanner only detects files, doesn't modify them
+      - ${UPLOADS_PATH:-/data/uploads}:/uploads:ro
+    networks:
+      - internal
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ===========================================================================
+  # Processor Service
+  # Processes files from queue: creates thumbnails, extracts metadata, geocoding
+  # Can run multiple instances for parallel processing
+  # ===========================================================================
+  processor:
+    build:
+      context: .
+      dockerfile: processor/Dockerfile
+    container_name: imgable-processor
+    restart: unless-stopped
+    environment:
+      # Database connection
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      # Redis connection
+      REDIS_URL: redis://redis:6379
+      # Directory paths
+      UPLOADS_DIR: /uploads
+      MEDIA_DIR: /media
+      FAILED_DIR: /failed
+      TEMP_DIR: /tmp/imgable
+      # Worker configuration
+      WORKERS: ${WORKERS:-4}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      # Resource limits
+      MAX_MEMORY_MB: ${MAX_MEMORY_MB:-1024}
+      # Image processing
+      PREVIEW_QUALITY: ${PREVIEW_QUALITY:-85}
+      PREVIEW_SMALL_PX: ${PREVIEW_SMALL_PX:-800}
+      PREVIEW_MEDIUM_PX: ${PREVIEW_MEDIUM_PX:-1600}
+      PREVIEW_LARGE_PX: ${PREVIEW_LARGE_PX:-2500}
+      # Geocoding
+      NOMINATIM_ENABLED: ${NOMINATIM_ENABLED:-true}
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
+      NOMINATIM_RATE_LIMIT_MS: ${NOMINATIM_RATE_LIMIT_MS:-1100}
+      PLACE_RADIUS_M: ${PLACE_RADIUS_M:-500}
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      # API server
+      API_PORT: "8002"
+    volumes:
+      # Read-write access to uploads - processor reads and deletes after success
+      - ${UPLOADS_PATH:-/data/uploads}:/uploads
+      # Read-write access to media - processor writes processed files
+      - ${MEDIA_PATH:-/data/media}:/media
+      # Read-write access to failed - processor moves failed files here
+      - ${FAILED_PATH:-/data/failed}:/failed
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: ${MAX_MEMORY_MB:-1024}M
+    # For running multiple processor instances, use:
+    # docker compose up -d --scale processor=4
