@@ -74,7 +74,6 @@ func main() {
 		MediumPx:  cfg.PreviewMediumPx,
 		LargePx:   cfg.PreviewLargePx,
 		Quality:   cfg.PreviewQuality,
-		TempDir:   cfg.TempDir,
 		OutputDir: cfg.MediaDir,
 	}, log)
 

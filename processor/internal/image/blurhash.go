@@ -1,14 +1,13 @@
 package image
 
 import (
+	"bytes"
 	"fmt"
 	"image"
-	_ "image/jpeg"
 	_ "image/png"
-	"os"
 
 	"github.com/bbrks/go-blurhash"
-	"github.com/davidbyttow/govips/v2/vips"
+	"github.com/h2non/bimg"
 )
 
 // BlurhashComponents defines the number of components for blurhash encoding.
@@ -16,58 +15,70 @@ import (
 const (
 	BlurhashXComponents = 4
 	BlurhashYComponents = 3
+	blurhashMaxSize     = 64 // Max dimension for blurhash computation
 )
 
 // generateBlurhash generates a blurhash string from an image file.
+// It reads the image, resizes it to a small size for fast computation,
+// and generates the blurhash string.
 func (p *Processor) generateBlurhash(imagePath string) (string, error) {
-	// Load image with vips for better format support
-	img, err := vips.NewImageFromFile(imagePath)
+	// Read the image file
+	buffer, err := bimg.Read(imagePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to load image for blurhash: %w", err)
+		return "", fmt.Errorf("failed to read image: %w", err)
 	}
-	defer img.Close()
+
+	// Get current dimensions
+	size, err := bimg.NewImage(buffer).Size()
+	if err != nil {
+		return "", fmt.Errorf("failed to get image size: %w", err)
+	}
 
 	// Resize to small size for faster blurhash computation
 	// Blurhash doesn't need high resolution
-	const maxSize = 64
-	scale := float64(maxSize) / float64(max(img.Width(), img.Height()))
-	if scale < 1 {
-		if err := img.Resize(scale, vips.KernelNearest); err != nil {
+	width := size.Width
+	height := size.Height
+
+	if width > blurhashMaxSize || height > blurhashMaxSize {
+		var newWidth, newHeight int
+		if width >= height {
+			newWidth = blurhashMaxSize
+			newHeight = (height * blurhashMaxSize) / width
+		} else {
+			newHeight = blurhashMaxSize
+			newWidth = (width * blurhashMaxSize) / height
+		}
+
+		// Ensure minimum dimension
+		if newWidth < 1 {
+			newWidth = 1
+		}
+		if newHeight < 1 {
+			newHeight = 1
+		}
+
+		buffer, err = bimg.NewImage(buffer).Process(bimg.Options{
+			Width:  newWidth,
+			Height: newHeight,
+			Type:   bimg.PNG,
+		})
+		if err != nil {
 			return "", fmt.Errorf("failed to resize for blurhash: %w", err)
+		}
+	} else {
+		// Just convert to PNG for Go's image package
+		buffer, err = bimg.NewImage(buffer).Process(bimg.Options{
+			Type: bimg.PNG,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to convert to PNG: %w", err)
 		}
 	}
 
-	// Export as PNG for Go's image package
-	pngParams := vips.NewPngExportParams()
-	pngBytes, _, err := img.ExportPng(pngParams)
+	// Decode PNG with Go's standard image package
+	goImg, _, err := image.Decode(bytes.NewReader(buffer))
 	if err != nil {
-		return "", fmt.Errorf("failed to export for blurhash: %w", err)
-	}
-
-	// Create temporary file
-	tmpFile, err := os.CreateTemp("", "blurhash-*.png")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.Write(pngBytes); err != nil {
-		tmpFile.Close()
-		return "", fmt.Errorf("failed to write temp file: %w", err)
-	}
-	tmpFile.Close()
-
-	// Open with Go's image package
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open temp file: %w", err)
-	}
-	defer file.Close()
-
-	goImg, _, err := image.Decode(file)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode image for blurhash: %w", err)
+		return "", fmt.Errorf("failed to decode image: %w", err)
 	}
 
 	// Generate blurhash
@@ -77,32 +88,4 @@ func (p *Processor) generateBlurhash(imagePath string) (string, error) {
 	}
 
 	return hash, nil
-}
-
-// GenerateBlurhashFromFile generates a blurhash from an image file path.
-func GenerateBlurhashFromFile(imagePath string) (string, error) {
-	file, err := os.Open(imagePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode image: %w", err)
-	}
-
-	hash, err := blurhash.Encode(BlurhashXComponents, BlurhashYComponents, img)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode blurhash: %w", err)
-	}
-
-	return hash, nil
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

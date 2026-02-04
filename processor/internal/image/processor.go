@@ -1,12 +1,11 @@
-// Package image provides image processing functionality using libvips.
+// Package image provides image processing functionality using bimg/libvips.
 // It handles image resizing, format conversion, and blurhash generation.
 package image
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/davidbyttow/govips/v2/vips"
+	"github.com/h2non/bimg"
 
 	"github.com/eduard256/imgable/shared/pkg/fileutil"
 	"github.com/eduard256/imgable/shared/pkg/logger"
@@ -27,9 +26,6 @@ type ProcessorConfig struct {
 
 	// WebP quality (1-100)
 	Quality int
-
-	// Temporary directory for intermediate files
-	TempDir string
 
 	// Output directory for processed files
 	OutputDir string
@@ -71,17 +67,18 @@ func NewProcessor(cfg ProcessorConfig, log *logger.Logger) *Processor {
 	}
 }
 
-// Initialize initializes the vips library.
+// Initialize initializes the bimg/libvips library.
 // Must be called before processing any images.
 func Initialize() {
-	vips.LoggingSettings(nil, vips.LogLevelWarning)
-	vips.Startup(nil)
+	bimg.Initialize()
+	bimg.VipsCacheSetMaxMem(256 * 1024 * 1024) // 256MB cache
 }
 
-// Shutdown shuts down the vips library.
+// Shutdown shuts down the bimg/libvips library.
 // Should be called when the application exits.
 func Shutdown() {
-	vips.Shutdown()
+	bimg.VipsCacheDropAll()
+	bimg.Shutdown()
 }
 
 // Process processes an image file and generates previews.
@@ -89,21 +86,29 @@ func Shutdown() {
 func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) {
 	p.logger.WithField("input", inputPath).Debug("processing image")
 
-	// Load image
-	img, err := vips.NewImageFromFile(inputPath)
+	// Read the source image
+	buffer, err := bimg.Read(inputPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load image: %w", err)
+		return nil, fmt.Errorf("failed to read image: %w", err)
 	}
-	defer img.Close()
 
-	// Auto-rotate based on EXIF orientation
-	if err := img.AutoRotate(); err != nil {
-		p.logger.WithError(err).Warn("failed to auto-rotate image")
+	// Auto-rotate based on EXIF orientation first
+	buffer, err = bimg.NewImage(buffer).AutoRotate()
+	if err != nil {
+		p.logger.WithError(err).Warn("failed to auto-rotate image, continuing with original")
+		// Re-read original if auto-rotate failed
+		buffer, _ = bimg.Read(inputPath)
+	}
+
+	// Get original dimensions (after rotation)
+	size, err := bimg.NewImage(buffer).Size()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image size: %w", err)
 	}
 
 	result := &ProcessResult{
-		OriginalWidth:  img.Width(),
-		OriginalHeight: img.Height(),
+		OriginalWidth:  size.Width,
+		OriginalHeight: size.Height,
 	}
 
 	// Create output directory
@@ -112,9 +117,9 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Generate previews (from large to small to avoid quality loss)
+	// Generate previews (from large to small)
 	// Large preview
-	largePath, largeW, largeH, largeSize, err := p.generatePreview(img, outputID, "l", p.config.LargePx)
+	largePath, largeW, largeH, largeSize, err := p.generatePreview(buffer, outputID, "l", p.config.LargePx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate large preview: %w", err)
 	}
@@ -124,7 +129,7 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 	result.LargeSize = largeSize
 
 	// Medium preview
-	mediumPath, mediumW, mediumH, mediumSize, err := p.generatePreview(img, outputID, "m", p.config.MediumPx)
+	mediumPath, mediumW, mediumH, mediumSize, err := p.generatePreview(buffer, outputID, "m", p.config.MediumPx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate medium preview: %w", err)
 	}
@@ -133,8 +138,8 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 	result.MediumHeight = mediumH
 	result.MediumSize = mediumSize
 
-	// Small preview (also used for blurhash)
-	smallPath, smallW, smallH, smallSize, err := p.generatePreview(img, outputID, "s", p.config.SmallPx)
+	// Small preview
+	smallPath, smallW, smallH, smallSize, err := p.generatePreview(buffer, outputID, "s", p.config.SmallPx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate small preview: %w", err)
 	}
@@ -162,15 +167,21 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 }
 
 // generatePreview generates a single preview at the specified size.
-func (p *Processor) generatePreview(img *vips.ImageRef, outputID, suffix string, targetPx int) (path string, width, height, size int, err error) {
-	// Calculate scale factor
-	originalWidth := img.Width()
-	originalHeight := img.Height()
+// It resizes the image so that the longest edge equals targetPx (without upscaling).
+func (p *Processor) generatePreview(buffer []byte, outputID, suffix string, targetPx int) (path string, width, height, size int, err error) {
+	// Get current dimensions
+	imgSize, err := bimg.NewImage(buffer).Size()
+	if err != nil {
+		return "", 0, 0, 0, fmt.Errorf("failed to get image size: %w", err)
+	}
+
+	origWidth := imgSize.Width
+	origHeight := imgSize.Height
 
 	// Determine longest edge
-	longestEdge := originalWidth
-	if originalHeight > originalWidth {
-		longestEdge = originalHeight
+	longestEdge := origWidth
+	if origHeight > origWidth {
+		longestEdge = origHeight
 	}
 
 	// Don't upscale - if original is smaller than target, use original size
@@ -178,77 +189,50 @@ func (p *Processor) generatePreview(img *vips.ImageRef, outputID, suffix string,
 		targetPx = longestEdge
 	}
 
-	// Calculate scale
-	scale := float64(targetPx) / float64(longestEdge)
-
-	// Create a copy for resizing
-	resized, err := img.Copy()
-	if err != nil {
-		return "", 0, 0, 0, fmt.Errorf("failed to copy image: %w", err)
-	}
-	defer resized.Close()
-
-	// Resize
-	if err := resized.Resize(scale, vips.KernelLanczos3); err != nil {
-		return "", 0, 0, 0, fmt.Errorf("failed to resize: %w", err)
+	// Calculate target dimensions preserving aspect ratio
+	var newWidth, newHeight int
+	if origWidth >= origHeight {
+		// Landscape or square
+		newWidth = targetPx
+		newHeight = (origHeight * targetPx) / origWidth
+	} else {
+		// Portrait
+		newHeight = targetPx
+		newWidth = (origWidth * targetPx) / origHeight
 	}
 
-	// Output path
-	outputPath := fileutil.GetMediaPath(p.config.OutputDir, outputID, "_"+suffix+".webp")
+	// Ensure minimum dimension of 1 pixel
+	if newWidth < 1 {
+		newWidth = 1
+	}
+	if newHeight < 1 {
+		newHeight = 1
+	}
 
-	// Export to WebP
-	webpParams := vips.NewWebpExportParams()
-	webpParams.Quality = p.config.Quality
-	webpParams.Lossless = false
-	webpParams.StripMetadata = true
-
-	webpBytes, _, err := resized.ExportWebp(webpParams)
+	// Process image: resize and convert to WebP
+	processed, err := bimg.NewImage(buffer).Process(bimg.Options{
+		Width:         newWidth,
+		Height:        newHeight,
+		Type:          bimg.WEBP,
+		Quality:       p.config.Quality,
+		StripMetadata: true,
+		NoAutoRotate:  true, // Already rotated
+	})
 	if err != nil {
-		return "", 0, 0, 0, fmt.Errorf("failed to export WebP: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("failed to process image: %w", err)
+	}
+
+	// Get actual dimensions after processing
+	finalSize, err := bimg.NewImage(processed).Size()
+	if err != nil {
+		return "", 0, 0, 0, fmt.Errorf("failed to get final size: %w", err)
 	}
 
 	// Write to file
-	if err := writeFile(outputPath, webpBytes); err != nil {
+	outputPath := fileutil.GetMediaPath(p.config.OutputDir, outputID, "_"+suffix+".webp")
+	if err := bimg.Write(outputPath, processed); err != nil {
 		return "", 0, 0, 0, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return outputPath, resized.Width(), resized.Height(), len(webpBytes), nil
-}
-
-// writeFile writes bytes to a file, creating parent directories if needed.
-func writeFile(path string, data []byte) error {
-	if err := fileutil.EnsureDir(filepath.Dir(path)); err != nil {
-		return err
-	}
-
-	f, err := fileutil.CreateTemp(filepath.Dir(path), "imgable-")
-	if err != nil {
-		return err
-	}
-	tempPath := f.Name()
-
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		fileutil.SafeDelete(tempPath)
-		return err
-	}
-
-	if err := f.Sync(); err != nil {
-		f.Close()
-		fileutil.SafeDelete(tempPath)
-		return err
-	}
-
-	if err := f.Close(); err != nil {
-		fileutil.SafeDelete(tempPath)
-		return err
-	}
-
-	// Atomic rename
-	if err := fileutil.MoveFile(tempPath, path); err != nil {
-		fileutil.SafeDelete(tempPath)
-		return err
-	}
-
-	return nil
+	return outputPath, finalSize.Width, finalSize.Height, len(processed), nil
 }
