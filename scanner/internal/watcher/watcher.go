@@ -365,10 +365,10 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	// Step 1: Check if already processed
 	if modTime, exists := w.knownFiles[path]; exists && modTime.Equal(info.ModTime()) {
+		w.mu.Unlock()
 		return
 	}
 
@@ -383,6 +383,7 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 			seenAt:  time.Now(),
 		}
 		w.filesFound++
+		w.mu.Unlock()
 		w.logger.WithField("path", path).Debug("new file detected, added to pending")
 		return
 	}
@@ -393,6 +394,7 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 		pending.size = info.Size()
 		pending.modTime = info.ModTime()
 		pending.seenAt = time.Now() // Reset timer since file changed
+		w.mu.Unlock()
 		w.logger.WithField("path", path).Debug("file still changing, updated pending")
 		return
 	}
@@ -401,21 +403,22 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 	const minStableTime = 1 * time.Second
 	if time.Since(pending.seenAt) < minStableTime {
 		// Not enough time has passed, wait for next poll
+		w.mu.Unlock()
 		return
 	}
 
 	// Additional stability check: modTime should be old enough
 	if !w.isFileStable(path, info) {
+		w.mu.Unlock()
 		return
 	}
 
 	// File is stable! Process it.
 	delete(w.pendingFiles, path)
 	w.knownFiles[path] = info.ModTime()
-
-	// Release lock before calling handler (handler may take time)
 	w.mu.Unlock()
 
+	// Handler is called without lock
 	event := FileEvent{
 		Path:      path,
 		Size:      info.Size(),
@@ -428,10 +431,12 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 		// Remove from known on error so it can be retried
 		w.mu.Lock()
 		delete(w.knownFiles, path)
+		w.mu.Unlock()
 		// Don't add back to pending - let next poll cycle rediscover it
 	} else {
 		w.mu.Lock()
 		w.filesQueued++
+		w.mu.Unlock()
 	}
 }
 
