@@ -335,6 +335,7 @@ func (w *Watcher) handleFSEvent(path string) {
 	// Mark as known AFTER confirming stable and BEFORE sending to handler
 	w.mu.Lock()
 	w.knownFiles[path] = info.ModTime()
+	delete(w.pendingFiles, path) // Clean up if was in pending (added by poller before fsnotify processed it)
 	w.mu.Unlock()
 
 	event := FileEvent{
