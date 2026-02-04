@@ -4,6 +4,12 @@ let token = localStorage.getItem('token');
 let currentPhotos = [];
 let currentPhotoIndex = 0;
 
+// Infinite scroll state
+let isLoadingMore = false;
+let hasMorePhotos = false;
+let nextCursor = null;
+let currentLoadContext = null; // 'gallery' or 'album:id'
+
 // API Client
 const api = {
     async request(method, path, body = null) {
@@ -115,6 +121,124 @@ function formatBytes(bytes) {
     return bytes.toFixed(1) + ' ' + units[i];
 }
 
+// Infinite scroll setup
+function setupInfiniteScroll() {
+    let ticking = false;
+
+    const checkScroll = () => {
+        if (isLoadingMore || !hasMorePhotos || !nextCursor) return;
+
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const documentHeight = document.documentElement.scrollHeight;
+
+        // Start loading when user is within 1500px of bottom (about 2-3 screen heights ahead)
+        // This ensures content loads well before user reaches the end
+        const threshold = 1500;
+        const distanceFromBottom = documentHeight - (scrollY + windowHeight);
+
+        if (distanceFromBottom < threshold) {
+            loadMorePhotos();
+        }
+    };
+
+    window.removeEventListener('scroll', window._infiniteScrollHandler);
+    window._infiniteScrollHandler = () => {
+        if (!ticking) {
+            // Use requestAnimationFrame for smooth performance during fast scrolling
+            requestAnimationFrame(() => {
+                checkScroll();
+                ticking = false;
+            });
+            ticking = true;
+        }
+    };
+    window.addEventListener('scroll', window._infiniteScrollHandler, { passive: true });
+
+    // Also check on resize
+    window.removeEventListener('resize', window._infiniteScrollResizeHandler);
+    window._infiniteScrollResizeHandler = checkScroll;
+    window.addEventListener('resize', window._infiniteScrollResizeHandler, { passive: true });
+}
+
+async function loadMorePhotos() {
+    if (isLoadingMore || !hasMorePhotos || !nextCursor) return;
+
+    isLoadingMore = true;
+
+    // Show loading indicator
+    const grid = $('#photo-grid');
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'load-more loading-indicator';
+    loadingEl.innerHTML = '<span>Loading...</span>';
+    grid.appendChild(loadingEl);
+
+    try {
+        if (currentLoadContext === 'gallery') {
+            await appendGalleryPhotos();
+        } else if (currentLoadContext?.startsWith('album:')) {
+            const albumId = currentLoadContext.split(':')[1];
+            await appendAlbumPhotos(albumId);
+        }
+    } finally {
+        isLoadingMore = false;
+        // Remove loading indicator
+        const indicator = grid.querySelector('.loading-indicator');
+        if (indicator) indicator.remove();
+    }
+}
+
+async function appendGalleryPhotos() {
+    const sort = $('#sort')?.value || 'date';
+    const filter = $('#filter')?.value || '';
+
+    let url = `/api/v1/photos?limit=100&sort=${sort}`;
+    if (filter === 'favorite') url += '&favorite=true';
+    else if (filter) url += `&type=${filter}`;
+    url += `&cursor=${nextCursor}`;
+
+    const data = await api.get(url);
+
+    hasMorePhotos = data.has_more;
+    nextCursor = data.next_cursor;
+
+    appendPhotosToGrid(data.photos);
+}
+
+async function appendAlbumPhotos(albumId) {
+    let url = `/api/v1/albums/${albumId}/photos?limit=100&cursor=${nextCursor}`;
+
+    const data = await api.get(url);
+
+    hasMorePhotos = data.has_more;
+    nextCursor = data.next_cursor;
+
+    appendPhotosToGrid(data.photos);
+}
+
+function appendPhotosToGrid(newPhotos) {
+    const grid = $('#photo-grid');
+    const startIndex = currentPhotos.length;
+
+    currentPhotos = [...currentPhotos, ...newPhotos];
+
+    for (let i = 0; i < newPhotos.length; i++) {
+        const photo = newPhotos[i];
+        const index = startIndex + i;
+
+        const div = document.createElement('div');
+        div.className = `photo-item ${photo.type === 'video' ? 'video' : ''}`;
+        div.dataset.id = photo.id;
+        div.dataset.index = index;
+        div.innerHTML = `
+            <img src="${API_BASE}${photo.small}" loading="lazy" alt="">
+            ${photo.duration ? `<span class="duration">${formatDuration(photo.duration)}</span>` : ''}
+        `;
+        div.onclick = () => openPhotoModal(index);
+        grid.appendChild(div);
+    }
+}
+
 // Header component
 function renderHeader(active) {
     return `
@@ -185,18 +309,26 @@ async function renderGallery() {
     $('#filter').onchange = () => loadPhotos();
 }
 
-async function loadPhotos(cursor = null) {
+async function loadPhotos() {
+    // Reset infinite scroll state
+    currentPhotos = [];
+    isLoadingMore = false;
+    hasMorePhotos = false;
+    nextCursor = null;
+    currentLoadContext = 'gallery';
+
     const sort = $('#sort')?.value || 'date';
     const filter = $('#filter')?.value || '';
 
     let url = `/api/v1/photos?limit=100&sort=${sort}`;
     if (filter === 'favorite') url += '&favorite=true';
     else if (filter) url += `&type=${filter}`;
-    if (cursor) url += `&cursor=${cursor}`;
 
     try {
         const data = await api.get(url);
-        currentPhotos = cursor ? [...currentPhotos, ...data.photos] : data.photos;
+        currentPhotos = data.photos;
+        hasMorePhotos = data.has_more;
+        nextCursor = data.next_cursor;
 
         let gridHtml = '';
         for (const photo of currentPhotos) {
@@ -208,15 +340,26 @@ async function loadPhotos(cursor = null) {
             `;
         }
 
-        if (data.has_more) {
-            gridHtml += `<div class="load-more"><button onclick="loadPhotos('${data.next_cursor}')">Load More</button></div>`;
-        }
-
         html($('#photo-grid'), gridHtml);
 
         $$('.photo-item').forEach(el => {
             el.onclick = () => openPhotoModal(parseInt(el.dataset.index));
         });
+
+        // Setup infinite scroll after initial load
+        setupInfiniteScroll();
+
+        // Check if we need to load more immediately (viewport might be tall)
+        setTimeout(() => {
+            if (hasMorePhotos && nextCursor) {
+                const scrollY = window.scrollY;
+                const windowHeight = window.innerHeight;
+                const documentHeight = document.documentElement.scrollHeight;
+                if (documentHeight - (scrollY + windowHeight) < 1500) {
+                    loadMorePhotos();
+                }
+            }
+        }, 100);
     } catch (err) {
         html($('#photo-grid'), `Error: ${err.message}`);
     }
@@ -468,6 +611,13 @@ async function createAlbum() {
 
 // Album View
 async function renderAlbumView(albumId) {
+    // Reset infinite scroll state
+    currentPhotos = [];
+    isLoadingMore = false;
+    hasMorePhotos = false;
+    nextCursor = null;
+    currentLoadContext = `album:${albumId}`;
+
     html($('#app'), renderHeader('albums') + `
         <div class="container">
             <div class="album-header" id="album-header">Loading...</div>
@@ -479,6 +629,8 @@ async function renderAlbumView(albumId) {
         const data = await api.get(`/api/v1/albums/${albumId}`);
         const album = data.album;
         currentPhotos = data.photos;
+        hasMorePhotos = data.has_more;
+        nextCursor = data.next_cursor;
 
         html($('#album-header'), `
             <h2><a href="/albums" data-link class="back-link">←</a> ${album.name} (${album.photo_count})</h2>
@@ -506,10 +658,20 @@ async function renderAlbumView(albumId) {
             el.onclick = () => openPhotoModal(parseInt(el.dataset.index));
         });
 
-        // Load more if has_more
-        if (data.has_more) {
-            // TODO: implement pagination for album photos
-        }
+        // Setup infinite scroll
+        setupInfiniteScroll();
+
+        // Check if we need to load more immediately (viewport might be tall)
+        setTimeout(() => {
+            if (hasMorePhotos && nextCursor) {
+                const scrollY = window.scrollY;
+                const windowHeight = window.innerHeight;
+                const documentHeight = document.documentElement.scrollHeight;
+                if (documentHeight - (scrollY + windowHeight) < 1500) {
+                    loadMorePhotos();
+                }
+            }
+        }, 100);
     } catch (err) {
         html($('#album-header'), `Error: ${err.message}`);
     }
