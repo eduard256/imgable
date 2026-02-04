@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,11 @@ import (
 func main() {
 	// Load configuration
 	cfg := config.Load()
+
+	// Ensure required directories exist
+	if err := cfg.EnsureDirs(); err != nil {
+		panic(fmt.Sprintf("failed to create directories: %v", err))
+	}
 
 	// Initialize logger
 	log := logger.New(logger.Config{
@@ -45,8 +51,10 @@ func main() {
 	// Create watcher
 	w, err := watcher.New(watcher.Config{
 		Dir:          cfg.UploadsDir,
+		FailedDir:    cfg.FailedDir,
 		Handler:      producer.HandleFileEvent,
 		PollInterval: cfg.ScanInterval,
+		StuckTimeout: cfg.StuckFileTimeout,
 		Logger:       log,
 	})
 	if err != nil {

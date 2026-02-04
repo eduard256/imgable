@@ -32,6 +32,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Ensure required directories exist
+	if err := cfg.EnsureDirs(); err != nil {
+		logger.Error("failed to create directories", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

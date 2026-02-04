@@ -3,6 +3,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -16,8 +17,14 @@ type Config struct {
 	// Directory to watch for new files
 	UploadsDir string
 
+	// Directory for stuck/failed files
+	FailedDir string
+
 	// Polling interval for fallback scanning (in addition to fsnotify)
 	ScanInterval time.Duration
+
+	// Timeout for stuck files (files in pending with unchanged size)
+	StuckFileTimeout time.Duration
 
 	// API server configuration
 	APIPort string
@@ -30,12 +37,14 @@ type Config struct {
 // Load loads configuration from environment variables.
 func Load() *Config {
 	return &Config{
-		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
-		UploadsDir:   getEnv("UPLOADS_DIR", "/uploads"),
-		ScanInterval: getDurationEnv("SCAN_INTERVAL_SEC", 60) * time.Second,
-		APIPort:      getEnv("API_PORT", "8001"),
-		LogLevel:     getEnv("LOG_LEVEL", "info"),
-		LogFormat:    getEnv("LOG_FORMAT", "text"),
+		RedisURL:         getEnv("REDIS_URL", "redis://localhost:6379"),
+		UploadsDir:       getEnv("UPLOADS_DIR", "/data/uploads"),
+		FailedDir:        getEnv("FAILED_DIR", "/data/failed"),
+		ScanInterval:     getDurationEnv("SCAN_INTERVAL_SEC", 60) * time.Second,
+		StuckFileTimeout: getDurationEnv("STUCK_FILE_TIMEOUT_MIN", 5) * time.Minute,
+		APIPort:          getEnv("API_PORT", "8001"),
+		LogLevel:         getEnv("LOG_LEVEL", "info"),
+		LogFormat:        getEnv("LOG_FORMAT", "text"),
 	}
 }
 
@@ -60,4 +69,15 @@ func getIntEnv(key string, defaultValue int) int {
 // getDurationEnv returns the environment variable as duration or a default if not set.
 func getDurationEnv(key string, defaultSeconds int) time.Duration {
 	return time.Duration(getIntEnv(key, defaultSeconds))
+}
+
+// EnsureDirs creates required directories if they don't exist.
+func (c *Config) EnsureDirs() error {
+	dirs := []string{c.UploadsDir, c.FailedDir}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return nil
 }

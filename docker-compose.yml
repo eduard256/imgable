@@ -91,7 +91,7 @@ services:
 
   # ===========================================================================
   # Scanner Service
-  # Watches /uploads directory for new files and queues them for processing
+  # Watches /data/uploads directory for new files and queues them for processing
   # Single instance - only one scanner should watch the directory
   # ===========================================================================
   scanner:
@@ -104,16 +104,19 @@ services:
       # Redis connection
       REDIS_URL: redis://redis:6379
       # Scanner configuration
-      UPLOADS_DIR: /uploads
+      DATA_DIR: /data
+      UPLOADS_DIR: /data/uploads
+      FAILED_DIR: /data/failed
       SCAN_INTERVAL_SEC: ${SCAN_INTERVAL_SEC:-60}
+      STUCK_FILE_TIMEOUT_MIN: ${STUCK_FILE_TIMEOUT_MIN:-5}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-text}
       # API server
       API_PORT: "8001"
     volumes:
-      # Read-only access to uploads - scanner only detects files, doesn't modify them
-      - ${UPLOADS_PATH:-/data/uploads}:/uploads:ro
+      # Single data volume - subdirectories created automatically
+      - ${DATA_PATH:-/data/imgable}:/data
     networks:
       - internal
     depends_on:
@@ -152,9 +155,10 @@ services:
       # Redis connection
       REDIS_URL: redis://redis:6379
       # Directory paths
-      UPLOADS_DIR: /uploads
-      MEDIA_DIR: /media
-      FAILED_DIR: /failed
+      DATA_DIR: /data
+      UPLOADS_DIR: /data/uploads
+      MEDIA_DIR: /data/media
+      FAILED_DIR: /data/failed
       TEMP_DIR: /tmp/imgable
       # Worker configuration
       WORKERS: ${WORKERS:-4}
@@ -176,12 +180,8 @@ services:
       # API server
       API_PORT: "8002"
     volumes:
-      # Read-write access to uploads - processor reads and deletes after success
-      - ${UPLOADS_PATH:-/data/uploads}:/uploads
-      # Read-write access to media - processor writes processed files
-      - ${MEDIA_PATH:-/data/media}:/media
-      # Read-write access to failed - processor moves failed files here
-      - ${FAILED_PATH:-/data/failed}:/failed
+      # Single data volume - subdirectories created automatically
+      - ${DATA_PATH:-/data/imgable}:/data
     networks:
       - internal
     depends_on:
@@ -224,15 +224,16 @@ services:
       API_PORT: "9812"
       # Authentication (REQUIRED - set in .env)
       IMGABLE_PASSWORD: ${IMGABLE_PASSWORD:?IMGABLE_PASSWORD is required}
-      JWT_SECRET_FILE: /data/.jwt_secret
+      JWT_SECRET_FILE: /api_data/.jwt_secret
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS:-30}
       # Database connection
       DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
       # Redis connection
       REDIS_URL: redis://redis:6379
       # Directory paths
-      MEDIA_PATH: /media
-      UPLOADS_PATH: /uploads
+      DATA_DIR: /data
+      MEDIA_PATH: /data/media
+      UPLOADS_PATH: /data/uploads
       STATIC_PATH: /static
       # Service URLs for proxy
       SCANNER_URL: http://scanner:8001
@@ -243,12 +244,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-text}
     volumes:
-      # Persistent data (JWT secret)
-      - api_data:/data
-      # Read-only access to media - API serves files
-      - ${MEDIA_PATH:-/data/media}:/media:ro
-      # Write access to uploads - API accepts file uploads
-      - ${UPLOADS_PATH:-/data/uploads}:/uploads
+      # Persistent API data (JWT secret)
+      - api_data:/api_data
+      # Single data volume - media is read-only, uploads is read-write
+      - ${DATA_PATH:-/data/imgable}:/data
       # Static files (React build) - optional, can be empty
       - ${STATIC_PATH:-./api/static}:/static:ro
     networks:

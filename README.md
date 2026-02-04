@@ -61,9 +61,9 @@ cp .env.example .env
 # Edit .env to set your paths and passwords
 ```
 
-3. Create data directories:
+3. Create data directory (subdirectories are created automatically):
 ```bash
-mkdir -p /data/uploads /data/media /data/failed
+mkdir -p /data/imgable
 ```
 
 4. Start the services:
@@ -82,7 +82,7 @@ curl http://localhost:8002/status
 
 ### Usage
 
-1. **Upload photos**: Copy files to `/data/uploads` (or your configured path)
+1. **Upload photos**: Copy files to `/data/imgable/uploads` (or `$DATA_PATH/uploads`)
    - Any folder structure is supported
    - Supported formats: JPEG, PNG, HEIC, HEIF, WebP, GIF, TIFF, RAW, CR2, CR3, ARW, NEF, DNG
    - Supported videos: MP4, MOV, AVI, MKV, WebM
@@ -109,9 +109,7 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_PASSWORD` | `imgable` | Database password |
-| `UPLOADS_PATH` | `/data/uploads` | Input directory for new files |
-| `MEDIA_PATH` | `/data/media` | Output directory for processed files |
-| `FAILED_PATH` | `/data/failed` | Directory for failed files |
+| `DATA_PATH` | `/data/imgable` | Root directory for all data (uploads, media, failed created automatically) |
 | `WORKERS` | `4` | Number of concurrent processor workers |
 | `MAX_MEMORY_MB` | `1024` | Memory limit for processor |
 | `PREVIEW_QUALITY` | `85` | WebP quality (1-100) |

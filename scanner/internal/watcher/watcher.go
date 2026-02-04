@@ -27,27 +27,31 @@ type Handler func(event FileEvent) error
 // pendingFile represents a file that has been detected but not yet confirmed stable.
 // Files must be seen in at least 2 poll cycles with unchanged size/modTime before processing.
 type pendingFile struct {
-	size    int64     // File size at last check
-	modTime time.Time // Modification time at last check
-	seenAt  time.Time // When first detected
+	size        int64     // File size at last check
+	initialSize int64     // File size when first detected (to detect stuck files)
+	modTime     time.Time // Modification time at last check
+	seenAt      time.Time // When first detected
 }
 
 // Watcher watches a directory for new media files.
 type Watcher struct {
 	dir          string
+	failedDir    string
 	handler      Handler
 	pollInterval time.Duration
+	stuckTimeout time.Duration
 	logger       *logger.Logger
 
 	// State
-	mu           sync.RWMutex
-	running      bool
-	watchedDirs  int
-	lastScanAt   time.Time
-	lastScanDur  time.Duration
-	filesFound   int64
-	filesQueued  int64
-	filesSkipped int64
+	mu               sync.RWMutex
+	running          bool
+	watchedDirs      int
+	lastScanAt       time.Time
+	lastScanDur      time.Duration
+	filesFound       int64
+	filesQueued      int64
+	filesSkipped     int64
+	filesMovedFailed int64
 
 	// Known files - files that have been successfully queued for processing.
 	// Key: file path, Value: modification time when queued.
@@ -72,11 +76,17 @@ type Config struct {
 	// Directory to watch
 	Dir string
 
+	// Directory for stuck/failed files
+	FailedDir string
+
 	// Handler to call when files are detected
 	Handler Handler
 
 	// Polling interval for fallback scanning
 	PollInterval time.Duration
+
+	// Timeout for stuck files
+	StuckTimeout time.Duration
 
 	// Logger instance
 	Logger *logger.Logger
@@ -86,8 +96,10 @@ type Config struct {
 func New(cfg Config) (*Watcher, error) {
 	w := &Watcher{
 		dir:          cfg.Dir,
+		failedDir:    cfg.FailedDir,
 		handler:      cfg.Handler,
 		pollInterval: cfg.PollInterval,
+		stuckTimeout: cfg.StuckTimeout,
 		logger:       cfg.Logger.WithField("component", "watcher"),
 		knownFiles:   make(map[string]time.Time),
 		pendingFiles: make(map[string]*pendingFile),
@@ -220,9 +232,10 @@ func (w *Watcher) initialScan() error {
 		if !w.isFileStable(path, info) {
 			// Add to pending files for tracking
 			w.pendingFiles[path] = &pendingFile{
-				size:    info.Size(),
-				modTime: info.ModTime(),
-				seenAt:  time.Now(),
+				size:        info.Size(),
+				initialSize: info.Size(),
+				modTime:     info.ModTime(),
+				seenAt:      time.Now(),
 			}
 			w.mu.Unlock()
 			w.logger.WithField("path", path).Debug("file not stable, added to pending")
@@ -378,9 +391,10 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 	if !isPending {
 		// First time seeing this file - add to pending, wait for next poll
 		w.pendingFiles[path] = &pendingFile{
-			size:    info.Size(),
-			modTime: info.ModTime(),
-			seenAt:  time.Now(),
+			size:        info.Size(),
+			initialSize: info.Size(),
+			modTime:     info.ModTime(),
+			seenAt:      time.Now(),
 		}
 		w.filesFound++
 		w.mu.Unlock()
@@ -409,6 +423,15 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 
 	// Additional stability check: modTime should be old enough
 	if !w.isFileStable(path, info) {
+		// Check if file is stuck (in pending > timeout and size never changed)
+		timeInPending := time.Since(pending.seenAt)
+		sizeUnchanged := pending.size == pending.initialSize
+
+		if w.stuckTimeout > 0 && timeInPending > w.stuckTimeout && sizeUnchanged {
+			w.logger.WithField("path", path).Info("moving stuck file to failed")
+			w.moveStuckToFailed(path)
+			delete(w.pendingFiles, path)
+		}
 		w.mu.Unlock()
 		return
 	}
@@ -438,6 +461,24 @@ func (w *Watcher) handlePollEvent(path string, info os.FileInfo) {
 		w.filesQueued++
 		w.mu.Unlock()
 	}
+}
+
+// moveStuckToFailed moves a stuck file to the failed directory.
+func (w *Watcher) moveStuckToFailed(path string) {
+	filename := filepath.Base(path)
+	destPath := filepath.Join(w.failedDir, filename)
+
+	err := os.Rename(path, destPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return // file already removed - ok
+		}
+		w.logger.WithError(err).WithField("path", path).Error("failed to move stuck file")
+		return
+	}
+
+	w.filesMovedFailed++
+	w.logger.WithField("path", path).Info("moved stuck file to failed")
 }
 
 // isFileStable checks if a file has stopped being written to.
@@ -497,17 +538,18 @@ func (w *Watcher) RemoveKnownFile(path string) {
 
 // Status holds watcher status information.
 type Status struct {
-	Running          bool      `json:"running"`
-	WatchedDirs      int       `json:"watched_dirs"`
-	LastScanAt       time.Time `json:"last_scan_at,omitempty"`
-	LastScanDurMs    int64     `json:"last_scan_duration_ms,omitempty"`
-	FilesDiscovered  int64     `json:"files_discovered"`
-	FilesQueued      int64     `json:"files_queued"`
-	FilesSkipped     int64     `json:"files_skipped"`
-	KnownFilesCount  int       `json:"known_files_count"`
-	PendingFilesCount int      `json:"pending_files_count"`
-	FSNotifyActive   bool      `json:"fsnotify_active"`
-	PollerActive     bool      `json:"poller_active"`
+	Running           bool      `json:"running"`
+	WatchedDirs       int       `json:"watched_dirs"`
+	LastScanAt        time.Time `json:"last_scan_at,omitempty"`
+	LastScanDurMs     int64     `json:"last_scan_duration_ms,omitempty"`
+	FilesDiscovered   int64     `json:"files_discovered"`
+	FilesQueued       int64     `json:"files_queued"`
+	FilesSkipped      int64     `json:"files_skipped"`
+	FilesMovedFailed  int64     `json:"files_moved_failed"`
+	KnownFilesCount   int       `json:"known_files_count"`
+	PendingFilesCount int       `json:"pending_files_count"`
+	FSNotifyActive    bool      `json:"fsnotify_active"`
+	PollerActive      bool      `json:"poller_active"`
 }
 
 // Status returns the current status of the watcher.
@@ -516,17 +558,18 @@ func (w *Watcher) Status() Status {
 	defer w.mu.RUnlock()
 
 	return Status{
-		Running:          w.running,
-		WatchedDirs:      w.watchedDirs,
-		LastScanAt:       w.lastScanAt,
-		LastScanDurMs:    w.lastScanDur.Milliseconds(),
-		FilesDiscovered:  w.filesFound,
-		FilesQueued:      w.filesQueued,
-		FilesSkipped:     w.filesSkipped,
-		KnownFilesCount:  len(w.knownFiles),
+		Running:           w.running,
+		WatchedDirs:       w.watchedDirs,
+		LastScanAt:        w.lastScanAt,
+		LastScanDurMs:     w.lastScanDur.Milliseconds(),
+		FilesDiscovered:   w.filesFound,
+		FilesQueued:       w.filesQueued,
+		FilesSkipped:      w.filesSkipped,
+		FilesMovedFailed:  w.filesMovedFailed,
+		KnownFilesCount:   len(w.knownFiles),
 		PendingFilesCount: len(w.pendingFiles),
-		FSNotifyActive:   w.fsWatcher != nil,
-		PollerActive:     w.poller != nil,
+		FSNotifyActive:    w.fsWatcher != nil,
+		PollerActive:      w.poller != nil,
 	}
 }
 

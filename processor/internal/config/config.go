@@ -3,6 +3,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -58,9 +59,9 @@ func Load() *Config {
 		RedisURL: getEnv("REDIS_URL", "redis://localhost:6379"),
 
 		// Directories
-		UploadsDir: getEnv("UPLOADS_DIR", "/uploads"),
-		MediaDir:   getEnv("MEDIA_DIR", "/media"),
-		FailedDir:  getEnv("FAILED_DIR", "/failed"),
+		UploadsDir: getEnv("UPLOADS_DIR", "/data/uploads"),
+		MediaDir:   getEnv("MEDIA_DIR", "/data/media"),
+		FailedDir:  getEnv("FAILED_DIR", "/data/failed"),
 		TempDir:    getEnv("TEMP_DIR", "/tmp/imgable"),
 
 		// Workers
@@ -137,4 +138,15 @@ func (c *Config) GetPreviewConfig() PreviewConfig {
 		SmallPx: c.PreviewSmallPx,
 		LargePx: c.PreviewLargePx,
 	}
+}
+
+// EnsureDirs creates required directories if they don't exist.
+func (c *Config) EnsureDirs() error {
+	dirs := []string{c.UploadsDir, c.MediaDir, c.FailedDir, c.TempDir}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return nil
 }

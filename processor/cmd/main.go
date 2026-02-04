@@ -33,6 +33,11 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
+	// Ensure required directories exist
+	if err := cfg.EnsureDirs(); err != nil {
+		panic(fmt.Sprintf("failed to create directories: %v", err))
+	}
+
 	// Initialize logger
 	log := logger.New(logger.Config{
 		Level:   cfg.LogLevel,

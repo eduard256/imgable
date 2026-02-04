@@ -69,8 +69,8 @@ func Load() (*Config, error) {
 		RedisURL: getEnvString("REDIS_URL", "redis://localhost:6379"),
 
 		// Paths
-		MediaPath:   getEnvString("MEDIA_PATH", "/media"),
-		UploadsPath: getEnvString("UPLOADS_PATH", "/uploads"),
+		MediaPath:   getEnvString("MEDIA_PATH", "/data/media"),
+		UploadsPath: getEnvString("UPLOADS_PATH", "/data/uploads"),
 		StaticPath:  getEnvString("STATIC_PATH", "/static"),
 
 		// Service URLs
@@ -187,4 +187,13 @@ func getEnvInt64(key string, defaultVal int64) int64 {
 		}
 	}
 	return defaultVal
+}
+
+// EnsureDirs creates required directories if they don't exist.
+func (c *Config) EnsureDirs() error {
+	// Only create uploads dir - media is managed by processor
+	if err := os.MkdirAll(c.UploadsPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", c.UploadsPath, err)
+	}
+	return nil
 }
