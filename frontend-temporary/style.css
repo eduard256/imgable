@@ -110,3 +110,181 @@ input { padding: 8px; border: 1px solid #ccc; }
 .share-modal .share-url input { flex: 1; }
 .share-modal .share-options { margin-bottom: 15px; }
 .share-modal .share-options label { display: block; margin-bottom: 5px; }
+
+/* Upload Page */
+.upload-area {
+    border: 3px dashed #ccc;
+    border-radius: 12px;
+    padding: 50px 40px;
+    text-align: center;
+    background: #fafafa;
+    transition: all 0.2s ease;
+    margin-bottom: 20px;
+}
+.upload-area.dragover {
+    border-color: #0066cc;
+    background: #e8f4ff;
+    transform: scale(1.01);
+}
+.upload-icon { font-size: 56px; margin-bottom: 12px; }
+.upload-text { font-size: 18px; font-weight: 500; color: #333; margin-bottom: 8px; }
+.upload-subtext { color: #888; margin-bottom: 12px; font-size: 14px; }
+.upload-buttons { display: flex; gap: 10px; justify-content: center; margin-bottom: 12px; }
+.upload-buttons button {
+    padding: 10px 20px;
+    font-size: 14px;
+    background: #0066cc;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.upload-buttons button:hover { background: #0052a3; }
+.upload-hint { font-size: 12px; color: #999; }
+
+/* Upload Summary */
+.upload-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.summary-stats {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+}
+.summary-stats .done { color: #00aa44; }
+.summary-stats .failed { color: #cc3300; }
+.summary-actions {
+    display: flex;
+    gap: 8px;
+}
+.summary-actions button {
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.summary-actions button:hover { background: #f5f5f5; }
+
+/* Upload List - Individual file items */
+.upload-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.upload-item {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+}
+.upload-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.upload-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.upload-item-size {
+    font-size: 11px;
+    color: #888;
+}
+.upload-item-progress {
+    width: 120px;
+    height: 8px;
+    background: #e8e8e8;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.upload-item-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 4px;
+    transition: width 0.2s ease;
+    background: #ccc;
+}
+.upload-item-bar.uploading {
+    background: linear-gradient(90deg, #0066cc, #00aaff);
+}
+.upload-item-bar.done {
+    background: #00aa44;
+}
+.upload-item-bar.error {
+    background: #cc3300;
+}
+.upload-item-bar.cancelled {
+    background: #999;
+}
+.upload-item-status {
+    font-size: 12px;
+    color: #666;
+    min-width: 70px;
+    text-align: right;
+}
+.upload-item-status.done { color: #00aa44; }
+.upload-item-status.error { color: #cc3300; }
+.upload-item-status.cancelled { color: #999; }
+.upload-item-cancel {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #f0f0f0;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.upload-item-cancel:hover {
+    background: #e0e0e0;
+    color: #333;
+}
+
+/* Mobile adjustments for upload */
+@media (max-width: 600px) {
+    .upload-item {
+        grid-template-columns: 1fr auto auto;
+    }
+    .upload-item-progress {
+        width: 80px;
+    }
+    .upload-item-status {
+        min-width: 50px;
+        font-size: 11px;
+    }
+    .upload-area {
+        padding: 30px 20px;
+    }
+    .upload-buttons {
+        flex-direction: column;
+    }
+    .summary-stats {
+        gap: 12px;
+        font-size: 13px;
+    }
+}

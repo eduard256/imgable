@@ -164,10 +164,12 @@ function setupInfiniteScroll() {
 async function loadMorePhotos() {
     if (isLoadingMore || !hasMorePhotos || !nextCursor) return;
 
+    const grid = $('#photo-grid');
+    if (!grid) return; // Guard against null grid (page changed)
+
     isLoadingMore = true;
 
     // Show loading indicator
-    const grid = $('#photo-grid');
     const loadingEl = document.createElement('div');
     loadingEl.className = 'load-more loading-indicator';
     loadingEl.innerHTML = '<span>Loading...</span>';
@@ -250,6 +252,7 @@ function renderHeader(active) {
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
                     <a href="/places" class="${active === 'places' ? 'active' : ''}" data-link>Map</a>
                     <a href="/sync" class="${active === 'sync' ? 'active' : ''}" data-link>Sync</a>
+                    <a href="/upload" class="${active === 'upload' ? 'active' : ''}" data-link>Upload</a>
                 </nav>
             </div>
             <div class="header-right">
@@ -881,6 +884,430 @@ async function submitSharePassword(e, code) {
     }
 }
 
+// Upload Page - Parallel uploads with individual progress bars
+const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB
+const SUPPORTED_EXTENSIONS = [
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif', '.tiff', '.tif', '.bmp',
+    '.raw', '.cr2', '.cr3', '.arw', '.nef', '.dng', '.orf', '.rw2',
+    '.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.mts', '.m2ts', '.3gp'
+];
+const MAX_PARALLEL_UPLOADS = 3;
+
+let uploadFiles = [];
+let uploadIdCounter = 0;
+let activeUploads = 0;
+let uploadCancelled = false;
+
+function renderUpload() {
+    // Reset state when entering page
+    uploadFiles = [];
+    uploadIdCounter = 0;
+    activeUploads = 0;
+    uploadCancelled = false;
+
+    html($('#app'), renderHeader('upload') + `
+        <div class="container">
+            <h2>Upload Files</h2>
+            <div class="upload-area" id="upload-area">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Drag & drop files or folders here</div>
+                <div class="upload-subtext">or</div>
+                <div class="upload-buttons">
+                    <button type="button" id="btn-select-files">Select Files</button>
+                    <button type="button" id="btn-select-folder">Select Folder</button>
+                </div>
+                <input type="file" id="file-input" multiple accept="image/*,video/*" style="display:none">
+                <input type="file" id="folder-input" webkitdirectory style="display:none">
+                <div class="upload-hint">Photos & videos up to 4 GB each. Supports nested folders.</div>
+            </div>
+            <div class="upload-summary" id="upload-summary" style="display:none">
+                <div class="summary-stats">
+                    <span id="summary-total">0 files</span>
+                    <span id="summary-size">0 B</span>
+                    <span id="summary-done" class="done">0 done</span>
+                    <span id="summary-failed" class="failed" style="display:none">0 failed</span>
+                </div>
+                <div class="summary-actions">
+                    <button type="button" id="btn-cancel-all">Cancel All</button>
+                    <button type="button" id="btn-clear-done">Clear Completed</button>
+                </div>
+            </div>
+            <div class="upload-list" id="upload-list"></div>
+        </div>
+    `);
+
+    setupUploadHandlers();
+}
+
+function setupUploadHandlers() {
+    const area = $('#upload-area');
+    const fileInput = $('#file-input');
+    const folderInput = $('#folder-input');
+
+    // Button clicks
+    $('#btn-select-files').onclick = () => fileInput.click();
+    $('#btn-select-folder').onclick = () => folderInput.click();
+    $('#btn-cancel-all').onclick = cancelAllUploads;
+    $('#btn-clear-done').onclick = clearCompletedUploads;
+
+    // Drag and drop
+    area.ondragenter = area.ondragover = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        area.classList.add('dragover');
+    };
+
+    area.ondragleave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        area.classList.remove('dragover');
+    };
+
+    area.ondrop = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        area.classList.remove('dragover');
+
+        const items = e.dataTransfer.items;
+        if (!items) return;
+
+        const files = [];
+        const entries = [];
+
+        // Collect all entries first
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.kind === 'file') {
+                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                if (entry) {
+                    entries.push(entry);
+                } else {
+                    const file = item.getAsFile();
+                    if (file) files.push(file);
+                }
+            }
+        }
+
+        // Process entries (may include folders)
+        for (const entry of entries) {
+            await traverseEntry(entry, files);
+        }
+
+        processFiles(files);
+    };
+
+    fileInput.onchange = () => {
+        if (fileInput.files.length > 0) {
+            processFiles(Array.from(fileInput.files));
+            fileInput.value = '';
+        }
+    };
+
+    folderInput.onchange = () => {
+        if (folderInput.files.length > 0) {
+            processFiles(Array.from(folderInput.files));
+            folderInput.value = '';
+        }
+    };
+}
+
+async function traverseEntry(entry, files) {
+    if (entry.isFile) {
+        try {
+            const file = await new Promise((resolve, reject) => {
+                entry.file(resolve, reject);
+            });
+            files.push(file);
+        } catch (e) {
+            console.warn('Could not read file:', entry.fullPath, e);
+        }
+    } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+
+        const readBatch = () => new Promise((resolve, reject) => {
+            reader.readEntries(resolve, reject);
+        });
+
+        try {
+            let batch;
+            do {
+                batch = await readBatch();
+                for (const childEntry of batch) {
+                    await traverseEntry(childEntry, files);
+                }
+            } while (batch.length > 0);
+        } catch (e) {
+            console.warn('Could not read directory:', entry.fullPath, e);
+        }
+    }
+}
+
+function isValidFile(file) {
+    if (!file.name || file.name.startsWith('.')) return false;
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    return SUPPORTED_EXTENSIONS.includes(ext);
+}
+
+function processFiles(files) {
+    const skipped = { invalid: 0, tooLarge: 0 };
+    let added = 0;
+
+    for (const file of files) {
+        if (!isValidFile(file)) {
+            skipped.invalid++;
+            continue;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+            skipped.tooLarge++;
+            continue;
+        }
+
+        const id = ++uploadIdCounter;
+        const item = {
+            id,
+            file,
+            status: 'pending', // pending, uploading, done, error, cancelled
+            progress: 0,
+            error: null,
+            xhr: null
+        };
+
+        uploadFiles.push(item);
+        renderFileItem(item);
+        added++;
+    }
+
+    updateSummary();
+
+    if (skipped.invalid > 0 || skipped.tooLarge > 0) {
+        const msgs = [];
+        if (skipped.invalid > 0) msgs.push(`${skipped.invalid} unsupported`);
+        if (skipped.tooLarge > 0) msgs.push(`${skipped.tooLarge} too large (>4GB)`);
+        setTimeout(() => alert(`Skipped: ${msgs.join(', ')}`), 100);
+    }
+
+    // Start/continue uploading - allow adding files while upload is in progress
+    if (added > 0) {
+        uploadCancelled = false;
+        processQueue();
+    }
+}
+
+function renderFileItem(item) {
+    const list = $('#upload-list');
+    if (!list) return;
+
+    const div = document.createElement('div');
+    div.className = 'upload-item';
+    div.id = `upload-item-${item.id}`;
+    div.innerHTML = `
+        <div class="upload-item-info">
+            <span class="upload-item-name" title="${item.file.name}">${truncateName(item.file.name, 40)}</span>
+            <span class="upload-item-size">${formatBytes(item.file.size)}</span>
+        </div>
+        <div class="upload-item-progress">
+            <div class="upload-item-bar" id="bar-${item.id}"></div>
+        </div>
+        <div class="upload-item-status" id="status-${item.id}">Waiting...</div>
+        <button class="upload-item-cancel" id="cancel-${item.id}" title="Cancel">×</button>
+    `;
+
+    list.insertBefore(div, list.firstChild);
+
+    document.getElementById(`cancel-${item.id}`).onclick = () => cancelUpload(item.id);
+}
+
+function truncateName(name, max) {
+    if (name.length <= max) return name;
+    const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+    const base = name.slice(0, name.length - ext.length);
+    const truncated = base.slice(0, max - ext.length - 3) + '...';
+    return truncated + ext;
+}
+
+function updateFileItem(item) {
+    const bar = document.getElementById(`bar-${item.id}`);
+    const status = document.getElementById(`status-${item.id}`);
+    const cancel = document.getElementById(`cancel-${item.id}`);
+    const row = document.getElementById(`upload-item-${item.id}`);
+
+    if (!bar || !status || !row) return;
+
+    bar.style.width = `${item.progress}%`;
+
+    if (item.status === 'uploading') {
+        bar.className = 'upload-item-bar uploading';
+        status.textContent = `${item.progress}%`;
+        status.className = 'upload-item-status';
+    } else if (item.status === 'done') {
+        bar.className = 'upload-item-bar done';
+        bar.style.width = '100%';
+        status.textContent = 'Done';
+        status.className = 'upload-item-status done';
+        if (cancel) cancel.style.display = 'none';
+    } else if (item.status === 'error') {
+        bar.className = 'upload-item-bar error';
+        status.textContent = item.error || 'Error';
+        status.className = 'upload-item-status error';
+        if (cancel) cancel.style.display = 'none';
+    } else if (item.status === 'cancelled') {
+        bar.className = 'upload-item-bar cancelled';
+        status.textContent = 'Cancelled';
+        status.className = 'upload-item-status cancelled';
+        if (cancel) cancel.style.display = 'none';
+    }
+}
+
+function updateSummary() {
+    const summary = $('#upload-summary');
+    if (!summary) return;
+
+    if (uploadFiles.length === 0) {
+        summary.style.display = 'none';
+        return;
+    }
+
+    summary.style.display = 'flex';
+
+    const total = uploadFiles.length;
+    const totalSize = uploadFiles.reduce((sum, f) => sum + f.file.size, 0);
+    const done = uploadFiles.filter(f => f.status === 'done').length;
+    const failed = uploadFiles.filter(f => f.status === 'error' || f.status === 'cancelled').length;
+
+    const totalEl = document.getElementById('summary-total');
+    const sizeEl = document.getElementById('summary-size');
+    const doneEl = document.getElementById('summary-done');
+    const failedEl = document.getElementById('summary-failed');
+
+    if (totalEl) totalEl.textContent = `${total} files`;
+    if (sizeEl) sizeEl.textContent = formatBytes(totalSize);
+    if (doneEl) doneEl.textContent = `${done} done`;
+    if (failedEl) {
+        failedEl.textContent = `${failed} failed`;
+        failedEl.style.display = failed > 0 ? '' : 'none';
+    }
+}
+
+function processQueue() {
+    if (uploadCancelled) return;
+
+    while (activeUploads < MAX_PARALLEL_UPLOADS) {
+        const next = uploadFiles.find(f => f.status === 'pending');
+        if (!next) break;
+
+        startUpload(next);
+    }
+}
+
+function startUpload(item) {
+    item.status = 'uploading';
+    item.progress = 0;
+    activeUploads++;
+    updateFileItem(item);
+
+    const xhr = new XMLHttpRequest();
+    item.xhr = xhr;
+
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && item.status === 'uploading') {
+            item.progress = Math.round((e.loaded / e.total) * 100);
+            updateFileItem(item);
+        }
+    };
+
+    xhr.onload = () => {
+        item.xhr = null;
+        activeUploads--;
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+            item.status = 'done';
+            item.progress = 100;
+        } else {
+            item.status = 'error';
+            try {
+                const resp = JSON.parse(xhr.responseText);
+                item.error = resp.error || `Error ${xhr.status}`;
+            } catch {
+                item.error = xhr.statusText || `Error ${xhr.status}`;
+            }
+        }
+
+        updateFileItem(item);
+        updateSummary();
+        processQueue();
+    };
+
+    xhr.onerror = () => {
+        item.xhr = null;
+        activeUploads--;
+        item.status = 'error';
+        item.error = 'Network error';
+        updateFileItem(item);
+        updateSummary();
+        processQueue();
+    };
+
+    xhr.onabort = () => {
+        item.xhr = null;
+        if (item.status === 'uploading') {
+            activeUploads--;
+            item.status = 'cancelled';
+            updateFileItem(item);
+            updateSummary();
+            processQueue();
+        }
+    };
+
+    const formData = new FormData();
+    formData.append('file', item.file);
+
+    xhr.open('POST', API_BASE + '/api/v1/upload');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+}
+
+function cancelUpload(id) {
+    const item = uploadFiles.find(f => f.id === id);
+    if (!item) return;
+
+    if (item.status === 'pending') {
+        item.status = 'cancelled';
+        updateFileItem(item);
+        updateSummary();
+    } else if (item.status === 'uploading' && item.xhr) {
+        item.xhr.abort();
+    }
+}
+
+function cancelAllUploads() {
+    uploadCancelled = true;
+
+    for (const item of uploadFiles) {
+        if (item.status === 'pending') {
+            item.status = 'cancelled';
+            updateFileItem(item);
+        } else if (item.status === 'uploading' && item.xhr) {
+            item.xhr.abort();
+        }
+    }
+
+    updateSummary();
+}
+
+function clearCompletedUploads() {
+    // Remove completed items from DOM and array
+    uploadFiles = uploadFiles.filter(item => {
+        if (item.status === 'done' || item.status === 'cancelled' || item.status === 'error') {
+            const el = document.getElementById(`upload-item-${item.id}`);
+            if (el) el.remove();
+            return false;
+        }
+        return true;
+    });
+
+    updateSummary();
+}
+
 // Setup routes
 router.add('/login', renderLogin);
 router.add('/', renderGallery);
@@ -888,6 +1315,7 @@ router.add('/albums', renderAlbums);
 router.add('/albums/:id', renderAlbumView);
 router.add('/places', renderPlaces);
 router.add('/sync', renderSync);
+router.add('/upload', renderUpload);
 router.add('/s/:code', renderShare);
 
 // Handle navigation clicks
