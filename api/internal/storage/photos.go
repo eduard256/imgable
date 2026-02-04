@@ -12,22 +12,19 @@ import (
 
 // Photo represents a photo or video in the gallery.
 type Photo struct {
-	ID               string     `json:"id"`
-	Type             string     `json:"type"`
-	Status           string     `json:"status,omitempty"`
-	Blurhash         *string    `json:"blurhash,omitempty"`
-	Width            *int       `json:"width,omitempty"`
-	Height           *int       `json:"height,omitempty"`
-	SmallWidth       *int       `json:"small_width,omitempty"`
-	SmallHeight      *int       `json:"small_height,omitempty"`
-	MediumWidth      *int       `json:"medium_width,omitempty"`
-	MediumHeight     *int       `json:"medium_height,omitempty"`
-	LargeWidth       *int       `json:"large_width,omitempty"`
-	LargeHeight      *int       `json:"large_height,omitempty"`
-	SizeOriginal     *int       `json:"size_original,omitempty"`
-	SizeSmall        *int       `json:"size_small,omitempty"`
-	SizeMedium       *int       `json:"size_medium,omitempty"`
-	SizeLarge        *int       `json:"size_large,omitempty"`
+	ID           string  `json:"id"`
+	Type         string  `json:"type"`
+	Status       string  `json:"status,omitempty"`
+	Blurhash     *string `json:"blurhash,omitempty"`
+	Width        *int    `json:"width,omitempty"`
+	Height       *int    `json:"height,omitempty"`
+	SmallWidth   *int    `json:"small_width,omitempty"`
+	SmallHeight  *int    `json:"small_height,omitempty"`
+	LargeWidth   *int    `json:"large_width,omitempty"`
+	LargeHeight  *int    `json:"large_height,omitempty"`
+	SizeOriginal *int    `json:"size_original,omitempty"`
+	SizeSmall    *int    `json:"size_small,omitempty"`
+	SizeLarge    *int    `json:"size_large,omitempty"`
 	TakenAt          *time.Time `json:"taken_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
@@ -304,9 +301,8 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 			id, type, status, blurhash,
 			width, height,
 			small_width, small_height,
-			medium_width, medium_height,
 			large_width, large_height,
-			size_original, size_small, size_medium, size_large,
+			size_original, size_small, size_large,
 			taken_at, created_at, updated_at,
 			is_favorite, comment,
 			original_filename, original_path,
@@ -321,8 +317,8 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 	var p Photo
 	var blurhash, comment, originalFilename, originalPath, videoCodec sql.NullString
 	var cameraMake, cameraModel, lens, shutterSpeed sql.NullString
-	var width, height, smallWidth, smallHeight, mediumWidth, mediumHeight sql.NullInt32
-	var largeWidth, largeHeight, sizeOriginal, sizeSmall, sizeMedium, sizeLarge sql.NullInt32
+	var width, height, smallWidth, smallHeight sql.NullInt32
+	var largeWidth, largeHeight, sizeOriginal, sizeSmall, sizeLarge sql.NullInt32
 	var durationSec, iso sql.NullInt32
 	var aperture, focalLength, gpsLat, gpsLon, gpsAltitude sql.NullFloat64
 	var flash sql.NullBool
@@ -333,9 +329,8 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 		&p.ID, &p.Type, &p.Status, &blurhash,
 		&width, &height,
 		&smallWidth, &smallHeight,
-		&mediumWidth, &mediumHeight,
 		&largeWidth, &largeHeight,
-		&sizeOriginal, &sizeSmall, &sizeMedium, &sizeLarge,
+		&sizeOriginal, &sizeSmall, &sizeLarge,
 		&takenAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.IsFavorite, &comment,
 		&originalFilename, &originalPath,
@@ -371,14 +366,6 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 		h := int(smallHeight.Int32)
 		p.SmallHeight = &h
 	}
-	if mediumWidth.Valid {
-		w := int(mediumWidth.Int32)
-		p.MediumWidth = &w
-	}
-	if mediumHeight.Valid {
-		h := int(mediumHeight.Int32)
-		p.MediumHeight = &h
-	}
 	if largeWidth.Valid {
 		w := int(largeWidth.Int32)
 		p.LargeWidth = &w
@@ -394,10 +381,6 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 	if sizeSmall.Valid {
 		s := int(sizeSmall.Int32)
 		p.SizeSmall = &s
-	}
-	if sizeMedium.Valid {
-		s := int(sizeMedium.Int32)
-		p.SizeMedium = &s
 	}
 	if sizeLarge.Valid {
 		s := int(sizeLarge.Int32)

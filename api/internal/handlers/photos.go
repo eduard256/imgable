@@ -166,10 +166,9 @@ type PhotoDetailResponse struct {
 
 // PhotoURLs contains URLs for different photo sizes.
 type PhotoURLs struct {
-	Small  string `json:"small"`
-	Medium string `json:"medium,omitempty"`
-	Large  string `json:"large,omitempty"`
-	Video  string `json:"video,omitempty"`
+	Small string `json:"small"`
+	Large string `json:"large,omitempty"`
+	Video string `json:"video,omitempty"`
 }
 
 // PhotoEXIF contains EXIF metadata.
@@ -249,7 +248,6 @@ func (h *PhotosHandler) Get(w http.ResponseWriter, r *http.Request) {
 		Small: h.photoURL(photo.ID, "s", token),
 	}
 	if photo.Type == "photo" {
-		resp.URLs.Medium = h.photoURL(photo.ID, "m", token)
 		resp.URLs.Large = h.photoURL(photo.ID, "l", token)
 	} else {
 		ext := getVideoExtension(photo.OriginalFilename)
@@ -487,7 +485,6 @@ func (h *PhotosHandler) deletePhotoFiles(photo *storage.Photo) {
 	// Delete previews
 	os.Remove(filepath.Join(basePath, photo.ID+"_s.webp"))
 	if photo.Type == "photo" {
-		os.Remove(filepath.Join(basePath, photo.ID+"_m.webp"))
 		os.Remove(filepath.Join(basePath, photo.ID+"_l.webp"))
 	}
 

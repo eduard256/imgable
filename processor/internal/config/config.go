@@ -30,10 +30,9 @@ type Config struct {
 	MaxMemoryMB int
 
 	// Image processing
-	PreviewQuality   int
-	PreviewSmallPx   int
-	PreviewMediumPx  int
-	PreviewLargePx   int
+	PreviewQuality int
+	PreviewSmallPx int
+	PreviewLargePx int
 
 	// Geocoding
 	NominatimEnabled    bool
@@ -72,10 +71,9 @@ func Load() *Config {
 		MaxMemoryMB: getIntEnv("MAX_MEMORY_MB", 1024),
 
 		// Image processing
-		PreviewQuality:  getIntEnv("PREVIEW_QUALITY", 85),
-		PreviewSmallPx:  getIntEnv("PREVIEW_SMALL_PX", 800),
-		PreviewMediumPx: getIntEnv("PREVIEW_MEDIUM_PX", 1600),
-		PreviewLargePx:  getIntEnv("PREVIEW_LARGE_PX", 2500),
+		PreviewQuality: getIntEnv("PREVIEW_QUALITY", 85),
+		PreviewSmallPx: getIntEnv("PREVIEW_SMALL_PX", 800),
+		PreviewLargePx: getIntEnv("PREVIEW_LARGE_PX", 2500),
 
 		// Geocoding
 		NominatimEnabled:     getBoolEnv("NOMINATIM_ENABLED", true),
@@ -127,18 +125,16 @@ func getDurationEnv(key string, defaultMs int) time.Duration {
 
 // PreviewConfig returns preview generation configuration.
 type PreviewConfig struct {
-	Quality  int
-	SmallPx  int
-	MediumPx int
-	LargePx  int
+	Quality int
+	SmallPx int
+	LargePx int
 }
 
 // GetPreviewConfig returns the preview configuration.
 func (c *Config) GetPreviewConfig() PreviewConfig {
 	return PreviewConfig{
-		Quality:  c.PreviewQuality,
-		SmallPx:  c.PreviewSmallPx,
-		MediumPx: c.PreviewMediumPx,
-		LargePx:  c.PreviewLargePx,
+		Quality: c.PreviewQuality,
+		SmallPx: c.PreviewSmallPx,
+		LargePx: c.PreviewLargePx,
 	}
 }

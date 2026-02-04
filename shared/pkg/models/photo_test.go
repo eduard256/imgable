@@ -35,10 +35,7 @@ func TestGeneratePhotoURLs(t *testing.T) {
 			}
 
 			if tt.photoType == PhotoTypePhoto {
-				// Photo should have medium and large
-				if urls.Medium == "" {
-					t.Error("Photo should have Medium URL")
-				}
+				// Photo should have large
 				if urls.Large == "" {
 					t.Error("Photo should have Large URL")
 				}
@@ -137,11 +134,6 @@ func TestPhotoURLsGeneration(t *testing.T) {
 		t.Errorf("Small URL: got %q, want %q", photoURLs.Small, expectedSmall)
 	}
 
-	expectedMedium := "/ab/c1/abc123def456_m.webp"
-	if photoURLs.Medium != expectedMedium {
-		t.Errorf("Medium URL: got %q, want %q", photoURLs.Medium, expectedMedium)
-	}
-
 	expectedLarge := "/ab/c1/abc123def456_l.webp"
 	if photoURLs.Large != expectedLarge {
 		t.Errorf("Large URL: got %q, want %q", photoURLs.Large, expectedLarge)
@@ -160,10 +152,7 @@ func TestPhotoURLsGeneration(t *testing.T) {
 		t.Errorf("Video URL: got %q, want %q", videoURLs.Video, expectedVideo)
 	}
 
-	// Video should not have medium/large
-	if videoURLs.Medium != "" {
-		t.Error("Video should not have medium URL")
-	}
+	// Video should not have large
 	if videoURLs.Large != "" {
 		t.Error("Video should not have large URL")
 	}

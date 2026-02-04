@@ -71,15 +71,12 @@ CREATE TABLE photos (
     -- Preview dimensions (actual after resize, may be smaller if original is small)
     small_width INT,                              -- small preview width (target 800px)
     small_height INT,                             -- small preview height
-    medium_width INT,                             -- medium preview width (target 1600px), NULL for video
-    medium_height INT,                            -- medium preview height, NULL for video
     large_width INT,                              -- large preview width (target 2500px), NULL for video
     large_height INT,                             -- large preview height, NULL for video
 
     -- File sizes in bytes (for statistics and download optimization)
     size_original INT,                            -- original size (for video — video file size)
     size_small INT,                               -- small preview size
-    size_medium INT,                              -- medium preview size
     size_large INT,                               -- large preview size
 
     -- Video specific
@@ -403,7 +400,6 @@ INSERT INTO settings (key, value, updated_at) VALUES
     ('processing_max_retries', '3', NOW()),                                 -- max retry attempts
     ('preview_quality', '85', NOW()),                                       -- WebP quality
     ('preview_small_px', '800', NOW()),                                     -- small preview target
-    ('preview_medium_px', '1600', NOW()),                                   -- medium preview target
     ('preview_large_px', '2500', NOW());                                    -- large preview target
 
 -- ============================================

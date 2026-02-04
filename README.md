@@ -116,7 +116,6 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 | `MAX_MEMORY_MB` | `1024` | Memory limit for processor |
 | `PREVIEW_QUALITY` | `85` | WebP quality (1-100) |
 | `PREVIEW_SMALL_PX` | `800` | Small preview size (longest edge) |
-| `PREVIEW_MEDIUM_PX` | `1600` | Medium preview size |
 | `PREVIEW_LARGE_PX` | `2500` | Large preview size |
 | `NOMINATIM_ENABLED` | `true` | Enable reverse geocoding |
 | `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | Nominatim API URL |
@@ -165,7 +164,6 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
         ├── Extract EXIF metadata
         ├── Create previews (libvips)
         │   ├── small:  800px   ~30KB
-        │   ├── medium: 1600px  ~70KB
         │   └── large:  2500px  ~150KB
         ├── Generate blurhash
         ├── Geocode GPS (Nominatim)
@@ -174,7 +172,6 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
         │
         ▼
    /data/media/ab/c1/abc123def456_s.webp
-                    abc123def456_m.webp
                     abc123def456_l.webp
 ```
 
@@ -189,7 +186,6 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 │   └── ab/
 │       └── c1/
 │           ├── abc123def456_s.webp   # Small preview
-│           ├── abc123def456_m.webp   # Medium preview
 │           ├── abc123def456_l.webp   # Large preview
 │           └── video789abc.mp4       # Video original
 │

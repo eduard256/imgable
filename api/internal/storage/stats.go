@@ -31,7 +31,7 @@ func (s *Storage) GetStats(ctx context.Context) (*Stats, error) {
 			COUNT(*) FILTER (WHERE type = 'photo' AND status = 'ready') as photos,
 			COUNT(*) FILTER (WHERE type = 'video' AND status = 'ready') as videos,
 			COUNT(*) FILTER (WHERE is_favorite = true AND status = 'ready') as favorites,
-			COALESCE(SUM(COALESCE(size_small, 0) + COALESCE(size_medium, 0) + COALESCE(size_large, 0) + COALESCE(size_original, 0)) FILTER (WHERE status = 'ready'), 0) as storage
+			COALESCE(SUM(COALESCE(size_small, 0) + COALESCE(size_large, 0) + COALESCE(size_original, 0)) FILTER (WHERE status = 'ready'), 0) as storage
 		FROM photos
 	`).Scan(&stats.TotalPhotos, &stats.TotalVideos, &stats.TotalFavorites, &stats.StorageBytes)
 	if err != nil {

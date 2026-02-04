@@ -49,17 +49,14 @@ type Photo struct {
 	Height sql.NullInt32 `json:"height,omitempty" db:"height"`
 
 	// Preview dimensions
-	SmallWidth   sql.NullInt32 `json:"small_width,omitempty" db:"small_width"`
-	SmallHeight  sql.NullInt32 `json:"small_height,omitempty" db:"small_height"`
-	MediumWidth  sql.NullInt32 `json:"medium_width,omitempty" db:"medium_width"`
-	MediumHeight sql.NullInt32 `json:"medium_height,omitempty" db:"medium_height"`
-	LargeWidth   sql.NullInt32 `json:"large_width,omitempty" db:"large_width"`
-	LargeHeight  sql.NullInt32 `json:"large_height,omitempty" db:"large_height"`
+	SmallWidth  sql.NullInt32 `json:"small_width,omitempty" db:"small_width"`
+	SmallHeight sql.NullInt32 `json:"small_height,omitempty" db:"small_height"`
+	LargeWidth  sql.NullInt32 `json:"large_width,omitempty" db:"large_width"`
+	LargeHeight sql.NullInt32 `json:"large_height,omitempty" db:"large_height"`
 
 	// File sizes in bytes
 	SizeOriginal sql.NullInt32 `json:"size_original,omitempty" db:"size_original"`
 	SizeSmall    sql.NullInt32 `json:"size_small,omitempty" db:"size_small"`
-	SizeMedium   sql.NullInt32 `json:"size_medium,omitempty" db:"size_medium"`
 	SizeLarge    sql.NullInt32 `json:"size_large,omitempty" db:"size_large"`
 
 	// Video specific
@@ -96,19 +93,16 @@ type PhotoInsert struct {
 	OriginalPath     *string `db:"original_path"`
 	OriginalFilename *string `db:"original_filename"`
 	TakenAt          *time.Time
-	Blurhash         *string
-	Width            *int
-	Height           *int
-	SmallWidth       *int
-	SmallHeight      *int
-	MediumWidth      *int
-	MediumHeight     *int
-	LargeWidth       *int
-	LargeHeight      *int
-	SizeOriginal     *int
-	SizeSmall        *int
-	SizeMedium       *int
-	SizeLarge        *int
+	Blurhash     *string
+	Width        *int
+	Height       *int
+	SmallWidth   *int
+	SmallHeight  *int
+	LargeWidth   *int
+	LargeHeight  *int
+	SizeOriginal *int
+	SizeSmall    *int
+	SizeLarge    *int
 	DurationSec      *int
 	VideoCodec       *string
 	CameraMake       *string
@@ -144,16 +138,13 @@ type PhotoAPI struct {
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
 
-	SmallWidth   int `json:"small_width,omitempty"`
-	SmallHeight  int `json:"small_height,omitempty"`
-	MediumWidth  int `json:"medium_width,omitempty"`
-	MediumHeight int `json:"medium_height,omitempty"`
-	LargeWidth   int `json:"large_width,omitempty"`
-	LargeHeight  int `json:"large_height,omitempty"`
+	SmallWidth  int `json:"small_width,omitempty"`
+	SmallHeight int `json:"small_height,omitempty"`
+	LargeWidth  int `json:"large_width,omitempty"`
+	LargeHeight int `json:"large_height,omitempty"`
 
 	SizeOriginal int `json:"size_original,omitempty"`
 	SizeSmall    int `json:"size_small,omitempty"`
-	SizeMedium   int `json:"size_medium,omitempty"`
 	SizeLarge    int `json:"size_large,omitempty"`
 
 	DurationSec int    `json:"duration_sec,omitempty"`
@@ -182,10 +173,9 @@ type PhotoAPI struct {
 
 // PhotoURLs contains URLs for different photo sizes.
 type PhotoURLs struct {
-	Small  string `json:"small,omitempty"`
-	Medium string `json:"medium,omitempty"`
-	Large  string `json:"large,omitempty"`
-	Video  string `json:"video,omitempty"` // For video original
+	Small string `json:"small,omitempty"`
+	Large string `json:"large,omitempty"`
+	Video string `json:"video,omitempty"` // For video original
 }
 
 // ToAPI converts a Photo to PhotoAPI for JSON responses.
@@ -223,12 +213,6 @@ func (p *Photo) ToAPI() PhotoAPI {
 	if p.SmallHeight.Valid {
 		api.SmallHeight = int(p.SmallHeight.Int32)
 	}
-	if p.MediumWidth.Valid {
-		api.MediumWidth = int(p.MediumWidth.Int32)
-	}
-	if p.MediumHeight.Valid {
-		api.MediumHeight = int(p.MediumHeight.Int32)
-	}
 	if p.LargeWidth.Valid {
 		api.LargeWidth = int(p.LargeWidth.Int32)
 	}
@@ -240,9 +224,6 @@ func (p *Photo) ToAPI() PhotoAPI {
 	}
 	if p.SizeSmall.Valid {
 		api.SizeSmall = int(p.SizeSmall.Int32)
-	}
-	if p.SizeMedium.Valid {
-		api.SizeMedium = int(p.SizeMedium.Int32)
 	}
 	if p.SizeLarge.Valid {
 		api.SizeLarge = int(p.SizeLarge.Int32)
@@ -307,7 +288,6 @@ func GeneratePhotoURLs(id string, photoType PhotoType) PhotoURLs {
 	}
 
 	if photoType == PhotoTypePhoto {
-		urls.Medium = basePath + "_m.webp"
 		urls.Large = basePath + "_l.webp"
 	} else {
 		urls.Video = basePath + ".mp4"

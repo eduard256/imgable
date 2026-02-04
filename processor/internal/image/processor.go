@@ -20,9 +20,8 @@ type Processor struct {
 // ProcessorConfig holds image processor configuration.
 type ProcessorConfig struct {
 	// Preview sizes (longest edge in pixels)
-	SmallPx  int
-	MediumPx int
-	LargePx  int
+	SmallPx int
+	LargePx int
 
 	// WebP quality (1-100)
 	Quality int
@@ -34,22 +33,18 @@ type ProcessorConfig struct {
 // ProcessResult holds the results of image processing.
 type ProcessResult struct {
 	// Generated file paths
-	SmallPath  string
-	MediumPath string
-	LargePath  string
+	SmallPath string
+	LargePath string
 
 	// Dimensions after processing
-	SmallWidth   int
-	SmallHeight  int
-	MediumWidth  int
-	MediumHeight int
-	LargeWidth   int
-	LargeHeight  int
+	SmallWidth  int
+	SmallHeight int
+	LargeWidth  int
+	LargeHeight int
 
 	// File sizes in bytes
-	SmallSize  int
-	MediumSize int
-	LargeSize  int
+	SmallSize int
+	LargeSize int
 
 	// Original dimensions
 	OriginalWidth  int
@@ -128,16 +123,6 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 	result.LargeHeight = largeH
 	result.LargeSize = largeSize
 
-	// Medium preview
-	mediumPath, mediumW, mediumH, mediumSize, err := p.generatePreview(buffer, outputID, "m", p.config.MediumPx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate medium preview: %w", err)
-	}
-	result.MediumPath = mediumPath
-	result.MediumWidth = mediumW
-	result.MediumHeight = mediumH
-	result.MediumSize = mediumSize
-
 	// Small preview
 	smallPath, smallW, smallH, smallSize, err := p.generatePreview(buffer, outputID, "s", p.config.SmallPx)
 	if err != nil {
@@ -159,7 +144,6 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 	p.logger.WithFields(map[string]interface{}{
 		"original": fmt.Sprintf("%dx%d", result.OriginalWidth, result.OriginalHeight),
 		"small":    fmt.Sprintf("%dx%d (%d bytes)", result.SmallWidth, result.SmallHeight, result.SmallSize),
-		"medium":   fmt.Sprintf("%dx%d (%d bytes)", result.MediumWidth, result.MediumHeight, result.MediumSize),
 		"large":    fmt.Sprintf("%dx%d (%d bytes)", result.LargeWidth, result.LargeHeight, result.LargeSize),
 	}).Debug("image processing completed")
 

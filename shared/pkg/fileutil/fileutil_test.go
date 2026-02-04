@@ -111,7 +111,7 @@ func TestGetMediaPath(t *testing.T) {
 		expected string
 	}{
 		{"/media", "abc123def456", "_s.webp", "/media/ab/c1/abc123def456_s.webp"},
-		{"/media", "xyz789xyz789", "_m.webp", "/media/xy/z7/xyz789xyz789_m.webp"},
+		{"/media", "xyz789xyz789", "_l.webp", "/media/xy/z7/xyz789xyz789_l.webp"},
 		{"/data/photos", "123456789012", ".mp4", "/data/photos/12/34/123456789012.mp4"},
 	}
 

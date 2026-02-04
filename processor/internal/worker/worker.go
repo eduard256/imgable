@@ -182,13 +182,10 @@ func (w *Worker) processImage(ctx context.Context, filePath, fileID string) (*mo
 		Height:           intPtr(result.OriginalHeight),
 		SmallWidth:       intPtr(result.SmallWidth),
 		SmallHeight:      intPtr(result.SmallHeight),
-		MediumWidth:      intPtr(result.MediumWidth),
-		MediumHeight:     intPtr(result.MediumHeight),
 		LargeWidth:       intPtr(result.LargeWidth),
 		LargeHeight:      intPtr(result.LargeHeight),
 		SizeOriginal:     intPtr(int(originalSize)),
 		SizeSmall:        intPtr(result.SmallSize),
-		SizeMedium:       intPtr(result.MediumSize),
 		SizeLarge:        intPtr(result.LargeSize),
 	}
 
@@ -308,36 +305,33 @@ func (w *Worker) savePhoto(ctx context.Context, photo *models.PhotoInsert) error
 			height = $9,
 			small_width = $10,
 			small_height = $11,
-			medium_width = $12,
-			medium_height = $13,
-			large_width = $14,
-			large_height = $15,
-			size_original = $16,
-			size_small = $17,
-			size_medium = $18,
-			size_large = $19,
-			duration_sec = $20,
-			video_codec = $21,
-			camera_make = $22,
-			camera_model = $23,
-			lens = $24,
-			iso = $25,
-			aperture = $26,
-			shutter_speed = $27,
-			focal_length = $28,
-			flash = $29,
-			gps_lat = $30,
-			gps_lon = $31,
-			gps_altitude = $32,
-			place_id = $33
+			large_width = $12,
+			large_height = $13,
+			size_original = $14,
+			size_small = $15,
+			size_large = $16,
+			duration_sec = $17,
+			video_codec = $18,
+			camera_make = $19,
+			camera_model = $20,
+			lens = $21,
+			iso = $22,
+			aperture = $23,
+			shutter_speed = $24,
+			focal_length = $25,
+			flash = $26,
+			gps_lat = $27,
+			gps_lon = $28,
+			gps_altitude = $29,
+			place_id = $30
 		WHERE id = $1
 	`
 
 	return w.db.Exec(ctx, query,
 		photo.ID, photo.Type, photo.Status, photo.OriginalPath, photo.OriginalFilename, photo.TakenAt,
 		photo.Blurhash, photo.Width, photo.Height,
-		photo.SmallWidth, photo.SmallHeight, photo.MediumWidth, photo.MediumHeight, photo.LargeWidth, photo.LargeHeight,
-		photo.SizeOriginal, photo.SizeSmall, photo.SizeMedium, photo.SizeLarge,
+		photo.SmallWidth, photo.SmallHeight, photo.LargeWidth, photo.LargeHeight,
+		photo.SizeOriginal, photo.SizeSmall, photo.SizeLarge,
 		photo.DurationSec, photo.VideoCodec,
 		photo.CameraMake, photo.CameraModel, photo.Lens, photo.ISO, photo.Aperture, photo.ShutterSpeed, photo.FocalLength, photo.Flash,
 		photo.GPSLat, photo.GPSLon, photo.GPSAltitude, photo.PlaceID,
@@ -407,7 +401,7 @@ func (w *Worker) cleanupOriginal(filePath string) {
 // cleanupPreviews removes generated preview files for a photo ID.
 // Used when we detect a duplicate after previews were already created.
 func (w *Worker) cleanupPreviews(fileID string) {
-	suffixes := []string{"_s.webp", "_m.webp", "_l.webp", ".mp4", ".mov", ".avi", ".mkv", ".webm"}
+	suffixes := []string{"_s.webp", "_l.webp", ".mp4", ".mov", ".avi", ".mkv", ".webm"}
 	for _, suffix := range suffixes {
 		path := fileutil.GetMediaPath(w.cfg.MediaDir, fileID, suffix)
 		if fileutil.FileExists(path) {

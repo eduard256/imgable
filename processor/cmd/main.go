@@ -71,7 +71,6 @@ func main() {
 	// Create image processor
 	imageProc := imgproc.NewProcessor(imgproc.ProcessorConfig{
 		SmallPx:   cfg.PreviewSmallPx,
-		MediumPx:  cfg.PreviewMediumPx,
 		LargePx:   cfg.PreviewLargePx,
 		Quality:   cfg.PreviewQuality,
 		OutputDir: cfg.MediaDir,

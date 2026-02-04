@@ -209,10 +209,9 @@ type PublicPhoto struct {
 
 // PublicURLs contains URLs for public share.
 type PublicURLs struct {
-	Small  string `json:"small"`
-	Medium string `json:"medium,omitempty"`
-	Large  string `json:"large,omitempty"`
-	Video  string `json:"video,omitempty"`
+	Small string `json:"small"`
+	Large string `json:"large,omitempty"`
+	Video string `json:"video,omitempty"`
 }
 
 // PublicAlbum represents album data for public shares.
@@ -274,7 +273,6 @@ func (h *SharesHandler) GetPublic(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if photo.Type == "photo" {
-			resp.Photo.URLs.Medium = fmt.Sprintf("/s/%s/photo/medium", code)
 			resp.Photo.URLs.Large = fmt.Sprintf("/s/%s/photo/large", code)
 		} else {
 			resp.Photo.URLs.Video = fmt.Sprintf("/s/%s/photo/video", code)
@@ -398,9 +396,6 @@ func (h *SharesHandler) GetPublicPhoto(w http.ResponseWriter, r *http.Request) {
 	switch size {
 	case "small":
 		filename = photoID + "_s.webp"
-		contentType = "image/webp"
-	case "medium":
-		filename = photoID + "_m.webp"
 		contentType = "image/webp"
 	case "large":
 		filename = photoID + "_l.webp"
