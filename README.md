@@ -35,7 +35,7 @@ A self-hosted family photo gallery with automatic photo processing, organization
 | Service | Port | Description |
 |---------|------|-------------|
 | **Scanner** | 8001 | Watches `/uploads` for new files, queues them for processing |
-| **Processor** | 8002 | Processes files: creates previews, extracts metadata, geocoding |
+| **Processor** | 8002 | Processes files: creates previews, extracts metadata |
 | **PostgreSQL** | 5432 | Stores all metadata, albums, places |
 | **Redis** | 6379 | Task queue (Asynq) and pub/sub for events |
 
@@ -115,9 +115,6 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 | `PREVIEW_QUALITY` | `85` | WebP quality (1-100) |
 | `PREVIEW_SMALL_PX` | `800` | Small preview size (longest edge) |
 | `PREVIEW_LARGE_PX` | `2500` | Large preview size |
-| `NOMINATIM_ENABLED` | `true` | Enable reverse geocoding |
-| `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | Nominatim API URL |
-| `PLACE_RADIUS_M` | `500` | Radius for clustering photos into places |
 | `SCAN_INTERVAL_SEC` | `60` | Polling interval (fallback for fsnotify) |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
 | `LOG_FORMAT` | `text` | Log format: text or json |
@@ -164,7 +161,7 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
         │   ├── small:  800px   ~30KB
         │   └── large:  2500px  ~150KB
         ├── Generate blurhash
-        ├── Geocode GPS (Nominatim)
+        ├── Extract GPS coordinates
         ├── Save to database
         └── Delete original
         │
@@ -325,5 +322,4 @@ MIT License
 - [libvips](https://libvips.github.io/libvips/) - Fast image processing
 - [govips](https://github.com/davidbyttow/govips) - Go bindings for libvips
 - [Asynq](https://github.com/hibiken/asynq) - Redis-based task queue
-- [Nominatim](https://nominatim.org/) - Reverse geocoding
 - [FFmpeg](https://ffmpeg.org/) - Video processing

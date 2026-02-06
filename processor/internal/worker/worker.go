@@ -16,7 +16,6 @@ import (
 
 	"github.com/eduard256/imgable/processor/internal/config"
 	"github.com/eduard256/imgable/processor/internal/failed"
-	"github.com/eduard256/imgable/processor/internal/geo"
 	"github.com/eduard256/imgable/processor/internal/image"
 	"github.com/eduard256/imgable/processor/internal/metadata"
 	"github.com/eduard256/imgable/processor/internal/video"
@@ -34,7 +33,6 @@ type Worker struct {
 	imageProc     *image.Processor
 	videoProc     *video.Processor
 	exifExtractor *metadata.Extractor
-	placeManager  *geo.PlaceManager
 	failedHandler *failed.Handler
 	logger        *logger.Logger
 	workerID      string
@@ -47,7 +45,6 @@ type WorkerDeps struct {
 	ImageProc     *image.Processor
 	VideoProc     *video.Processor
 	ExifExtractor *metadata.Extractor
-	PlaceManager  *geo.PlaceManager
 	FailedHandler *failed.Handler
 	Logger        *logger.Logger
 	WorkerID      string
@@ -61,7 +58,6 @@ func NewWorker(deps WorkerDeps) *Worker {
 		imageProc:     deps.ImageProc,
 		videoProc:     deps.VideoProc,
 		exifExtractor: deps.ExifExtractor,
-		placeManager:  deps.PlaceManager,
 		failedHandler: deps.FailedHandler,
 		logger:        deps.Logger.WithField("worker_id", deps.WorkerID),
 		workerID:      deps.WorkerID,
@@ -217,20 +213,12 @@ func (w *Worker) processImage(ctx context.Context, filePath, fileID string) (*mo
 		}
 		photo.Flash = boolPtr(exifMeta.Flash)
 
-		// GPS coordinates
+		// GPS coordinates (place_id is assigned by a separate geocoding worker)
 		if exifMeta.HasGPS() {
 			photo.GPSLat = exifMeta.GPSLat
 			photo.GPSLon = exifMeta.GPSLon
 			if exifMeta.GPSAltitude != nil {
 				photo.GPSAltitude = exifMeta.GPSAltitude
-			}
-
-			// Find or create place
-			placeID, err := w.placeManager.FindOrCreatePlace(ctx, *exifMeta.GPSLat, *exifMeta.GPSLon)
-			if err != nil {
-				w.logger.WithError(err).Warn("failed to find/create place")
-			} else if placeID != "" {
-				photo.PlaceID = strPtr(placeID)
 			}
 		}
 	}
@@ -322,8 +310,7 @@ func (w *Worker) savePhoto(ctx context.Context, photo *models.PhotoInsert) error
 			flash = $26,
 			gps_lat = $27,
 			gps_lon = $28,
-			gps_altitude = $29,
-			place_id = $30
+			gps_altitude = $29
 		WHERE id = $1
 	`
 
@@ -334,7 +321,7 @@ func (w *Worker) savePhoto(ctx context.Context, photo *models.PhotoInsert) error
 		photo.SizeOriginal, photo.SizeSmall, photo.SizeLarge,
 		photo.DurationSec, photo.VideoCodec,
 		photo.CameraMake, photo.CameraModel, photo.Lens, photo.ISO, photo.Aperture, photo.ShutterSpeed, photo.FocalLength, photo.Flash,
-		photo.GPSLat, photo.GPSLon, photo.GPSAltitude, photo.PlaceID,
+		photo.GPSLat, photo.GPSLon, photo.GPSAltitude,
 	)
 }
 

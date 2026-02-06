@@ -18,7 +18,6 @@ import (
 	"github.com/eduard256/imgable/processor/internal/api"
 	"github.com/eduard256/imgable/processor/internal/config"
 	"github.com/eduard256/imgable/processor/internal/failed"
-	"github.com/eduard256/imgable/processor/internal/geo"
 	imgproc "github.com/eduard256/imgable/processor/internal/image"
 	"github.com/eduard256/imgable/processor/internal/metadata"
 	"github.com/eduard256/imgable/processor/internal/metrics"
@@ -91,21 +90,6 @@ func main() {
 	// Create EXIF extractor
 	exifExtractor := metadata.NewExtractor(log)
 
-	// Create geocoder
-	geocoder := geo.NewGeocoder(geo.GeocoderConfig{
-		BaseURL:     cfg.NominatimURL,
-		RateLimitMs: cfg.NominatimRateLimitMs,
-		Enabled:     cfg.NominatimEnabled,
-		Timeout:     10 * time.Second,
-	}, log)
-
-	// Create place manager
-	placeManager := geo.NewPlaceManager(geo.PlaceManagerConfig{
-		RadiusM:  cfg.PlaceRadiusM,
-		DB:       db,
-		Geocoder: geocoder,
-	}, log)
-
 	// Create failed handler
 	failedHandler := failed.NewHandler(cfg.FailedDir, cfg.UploadsDir, log)
 
@@ -130,7 +114,6 @@ func main() {
 		ImageProc:     imageProc,
 		VideoProc:     videoProc,
 		ExifExtractor: exifExtractor,
-		PlaceManager:  placeManager,
 		FailedHandler: failedHandler,
 		Logger:        log,
 		WorkerID:      fmt.Sprintf("worker-%d", os.Getpid()),

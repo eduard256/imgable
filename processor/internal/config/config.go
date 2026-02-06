@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 )
 
 // Config holds all configuration for the processor service.
@@ -34,12 +33,6 @@ type Config struct {
 	PreviewQuality int
 	PreviewSmallPx int
 	PreviewLargePx int
-
-	// Geocoding
-	NominatimEnabled    bool
-	NominatimURL        string
-	NominatimRateLimitMs int
-	PlaceRadiusM        int
 
 	// API server
 	APIPort string
@@ -76,12 +69,6 @@ func Load() *Config {
 		PreviewSmallPx: getIntEnv("PREVIEW_SMALL_PX", 800),
 		PreviewLargePx: getIntEnv("PREVIEW_LARGE_PX", 2500),
 
-		// Geocoding
-		NominatimEnabled:     getBoolEnv("NOMINATIM_ENABLED", true),
-		NominatimURL:         getEnv("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
-		NominatimRateLimitMs: getIntEnv("NOMINATIM_RATE_LIMIT_MS", 1100),
-		PlaceRadiusM:         getIntEnv("PLACE_RADIUS_M", 25000),
-
 		// API
 		APIPort: getEnv("API_PORT", "8002"),
 
@@ -109,20 +96,6 @@ func getIntEnv(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// getBoolEnv returns the environment variable as bool or a default if not set.
-func getBoolEnv(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
-		if boolVal, err := strconv.ParseBool(value); err == nil {
-			return boolVal
-		}
-	}
-	return defaultValue
-}
-
-// getDurationEnv returns the environment variable as duration or a default if not set.
-func getDurationEnv(key string, defaultMs int) time.Duration {
-	return time.Duration(getIntEnv(key, defaultMs)) * time.Millisecond
-}
 
 // PreviewConfig returns preview generation configuration.
 type PreviewConfig struct {
