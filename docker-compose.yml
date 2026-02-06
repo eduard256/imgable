@@ -140,7 +140,7 @@ services:
 
   # ===========================================================================
   # Processor Service
-  # Processes files from queue: creates thumbnails, extracts metadata, geocoding
+  # Processes files from queue: creates thumbnails, extracts metadata
   # Can run multiple instances for parallel processing
   # ===========================================================================
   processor:
@@ -169,11 +169,6 @@ services:
       PREVIEW_QUALITY: ${PREVIEW_QUALITY:-85}
       PREVIEW_SMALL_PX: ${PREVIEW_SMALL_PX:-800}
       PREVIEW_LARGE_PX: ${PREVIEW_LARGE_PX:-2500}
-      # Geocoding
-      NOMINATIM_ENABLED: ${NOMINATIM_ENABLED:-true}
-      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
-      NOMINATIM_RATE_LIMIT_MS: ${NOMINATIM_RATE_LIMIT_MS:-1100}
-      PLACE_RADIUS_M: ${PLACE_RADIUS_M:-25000}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-text}
@@ -206,6 +201,47 @@ services:
           memory: ${MAX_MEMORY_MB:-1024}M
     # For running multiple processor instances, use:
     # docker compose up -d --scale processor=4
+
+  # ===========================================================================
+  # Places Service
+  # Assigns photos to places based on GPS coordinates, creates place albums
+  # ===========================================================================
+  places:
+    build:
+      context: .
+      dockerfile: places/Dockerfile
+    container_name: imgable-places
+    restart: unless-stopped
+    environment:
+      # Database connection
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      # Nominatim API
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      # API server
+      API_PORT: "8003"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   # ===========================================================================
   # API Server

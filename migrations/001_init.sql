@@ -342,6 +342,33 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to handle place album sync
+-- When photo.place_id changes, automatically add/remove from place album
+CREATE OR REPLACE FUNCTION sync_place_album()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        -- Remove from old place album
+        IF OLD.place_id IS NOT NULL AND OLD.place_id IS DISTINCT FROM NEW.place_id THEN
+            DELETE FROM album_photos
+            WHERE photo_id = NEW.id
+            AND album_id IN (SELECT id FROM albums WHERE place_id = OLD.place_id);
+        END IF;
+        -- Add to new place album
+        IF NEW.place_id IS NOT NULL AND OLD.place_id IS DISTINCT FROM NEW.place_id THEN
+            INSERT INTO album_photos (album_id, photo_id, added_at)
+            SELECT id, NEW.id, NOW() FROM albums WHERE place_id = NEW.place_id
+            ON CONFLICT (album_id, photo_id) DO NOTHING;
+        END IF;
+    ELSIF TG_OP = 'INSERT' AND NEW.place_id IS NOT NULL THEN
+        INSERT INTO album_photos (album_id, photo_id, added_at)
+        SELECT id, NEW.id, NOW() FROM albums WHERE place_id = NEW.place_id
+        ON CONFLICT (album_id, photo_id) DO NOTHING;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ============================================
 -- TRIGGERS
 -- ============================================
@@ -381,6 +408,12 @@ CREATE TRIGGER photos_favorites_sync
     AFTER INSERT OR UPDATE OF is_favorite ON photos
     FOR EACH ROW
     EXECUTE FUNCTION sync_favorites_album();
+
+-- Auto-sync place album
+CREATE TRIGGER photos_place_album_sync
+    AFTER INSERT OR UPDATE OF place_id ON photos
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_place_album();
 
 -- ============================================
 -- INITIAL DATA
