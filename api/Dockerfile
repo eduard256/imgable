@@ -46,8 +46,8 @@ RUN addgroup -g 1000 imgable && \
     adduser -u 1000 -G imgable -s /bin/sh -D imgable
 
 # Create directories
-RUN mkdir -p /data /media /uploads /static && \
-    chown -R imgable:imgable /data /media /uploads /static
+RUN mkdir -p /data /media /uploads /static /api_data && \
+    chown -R imgable:imgable /data /media /uploads /static /api_data
 
 # Copy binary from builder
 COPY --from=builder /api /usr/local/bin/api
