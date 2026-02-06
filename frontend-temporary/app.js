@@ -8,7 +8,7 @@ let currentPhotoIndex = 0;
 let isLoadingMore = false;
 let hasMorePhotos = false;
 let nextCursor = null;
-let currentLoadContext = null; // 'gallery' or 'album:id' or 'place:id'
+let currentLoadContext = null; // 'gallery' or 'album:id'
 
 // Multi-select state
 let selectMode = false;
@@ -189,9 +189,6 @@ async function loadMorePhotos() {
         } else if (currentLoadContext?.startsWith('album:')) {
             const albumId = currentLoadContext.split(':')[1];
             await appendAlbumPhotos(albumId);
-        } else if (currentLoadContext?.startsWith('place:')) {
-            const placeId = currentLoadContext.split(':')[1];
-            await appendPlacePhotos(placeId);
         }
     } finally {
         isLoadingMore = false;
@@ -220,17 +217,6 @@ async function appendGalleryPhotos() {
 
 async function appendAlbumPhotos(albumId) {
     let url = `/api/v1/albums/${albumId}/photos?limit=100&cursor=${nextCursor}`;
-
-    const data = await api.get(url);
-
-    hasMorePhotos = data.has_more;
-    nextCursor = data.next_cursor;
-
-    appendPhotosToGrid(data.photos);
-}
-
-async function appendPlacePhotos(placeId) {
-    let url = `/api/v1/places/${placeId}?limit=100&cursor=${nextCursor}`;
 
     const data = await api.get(url);
 
@@ -306,7 +292,6 @@ function renderHeader(active) {
                 <nav class="nav">
                     <a href="/" class="${active === 'gallery' ? 'active' : ''}" data-link>Gallery</a>
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
-                    <a href="/places" class="${active === 'places' ? 'active' : ''}" data-link>Map</a>
                     <a href="/shares" class="${active === 'shares' ? 'active' : ''}" data-link>Shares</a>
                     <a href="/stats" class="${active === 'stats' ? 'active' : ''}" data-link>Stats</a>
                     <a href="/sync" class="${active === 'sync' ? 'active' : ''}" data-link>Sync</a>
@@ -1146,131 +1131,7 @@ function setCoverPhoto(albumId, photoId, name, description) {
     }, 50);
 }
 
-// Places / Map
-async function renderPlaces() {
-    html($('#app'), renderHeader('places') + `
-        <div class="container">
-            <h2>Map</h2>
-            <div id="map"></div>
-            <div class="places-list" id="places-list">Loading...</div>
-        </div>
-    `);
-
-    const map = L.map('map').setView([55.75, 37.62], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
-
-    try {
-        const [placesData, mapData] = await Promise.all([
-            api.get('/api/v1/places'),
-            api.get('/api/v1/map')
-        ]);
-
-        // Add markers
-        if (mapData.markers) {
-            for (const marker of mapData.markers) {
-                L.marker([marker.lat, marker.lon])
-                    .addTo(map)
-                    .bindPopup(`<b>${marker.name}</b><br>${marker.count} photos`)
-                    .on('click', () => router.navigate(`/places/${marker.id}`));
-            }
-        }
-
-        // List places
-        let listHtml = '';
-        for (const place of placesData.places) {
-            listHtml += `
-                <div class="place-item" onclick="router.navigate('/places/${place.id}')">
-                    <span>${place.name}</span>
-                    <span>${place.photo_count} photos</span>
-                </div>
-            `;
-        }
-        html($('#places-list'), listHtml || 'No places with GPS data');
-    } catch (err) {
-        html($('#places-list'), `Error: ${err.message}`);
-    }
-}
-
-// Place View (single place with photos)
-async function renderPlaceView(placeId) {
-    // Reset infinite scroll state
-    currentPhotos = [];
-    isLoadingMore = false;
-    hasMorePhotos = false;
-    nextCursor = null;
-    currentLoadContext = `place:${placeId}`;
-
-    html($('#app'), renderHeader('places') + `
-        <div class="container">
-            <div class="place-header" id="place-header">Loading...</div>
-            <div id="place-map-small"></div>
-            <div class="photo-grid" id="photo-grid">Loading...</div>
-        </div>
-    `);
-
-    try {
-        const data = await api.get(`/api/v1/places/${placeId}`);
-        const place = data.place;
-        currentPhotos = data.photos;
-        hasMorePhotos = data.has_more;
-        nextCursor = data.next_cursor;
-
-        html($('#place-header'), `
-            <h2><a href="/places" data-link class="back-link">←</a> ${place.name}</h2>
-            <div class="place-info">
-                ${place.city ? `<span>${place.city}</span>` : ''}
-                ${place.country ? `<span>${place.country}</span>` : ''}
-                <span>${place.photo_count} photos</span>
-            </div>
-        `);
-
-        // Small map showing the place location
-        const smallMap = L.map('place-map-small', {
-            zoomControl: false,
-            dragging: false,
-            scrollWheelZoom: false
-        }).setView([place.gps_lat, place.gps_lon], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(smallMap);
-        L.marker([place.gps_lat, place.gps_lon]).addTo(smallMap);
-
-        let gridHtml = '';
-        for (const photo of currentPhotos) {
-            gridHtml += `
-                <div class="photo-item ${photo.type === 'video' ? 'video' : ''}" data-id="${photo.id}" data-index="${currentPhotos.indexOf(photo)}">
-                    <img src="${API_BASE}${photo.small}" loading="lazy" alt="">
-                    ${photo.duration ? `<span class="duration">${formatDuration(photo.duration)}</span>` : ''}
-                </div>
-            `;
-        }
-
-        html($('#photo-grid'), gridHtml || 'No photos in this place');
-
-        $$('.photo-item').forEach(el => {
-            el.onclick = () => openPhotoModal(parseInt(el.dataset.index));
-        });
-
-        // Setup infinite scroll
-        setupInfiniteScroll();
-
-        // Check if we need to load more immediately (viewport might be tall)
-        setTimeout(() => {
-            if (hasMorePhotos && nextCursor) {
-                const scrollY = window.scrollY;
-                const windowHeight = window.innerHeight;
-                const documentHeight = document.documentElement.scrollHeight;
-                if (documentHeight - (scrollY + windowHeight) < 1500) {
-                    loadMorePhotos();
-                }
-            }
-        }, 100);
-    } catch (err) {
-        html($('#place-header'), `Error: ${err.message}`);
-    }
-}
+// Map - TODO: implement with MapLibre GL JS + coordinate-based clustering
 
 // Sync Status
 async function renderSync() {
@@ -2174,8 +2035,7 @@ router.add('/login', renderLogin);
 router.add('/', renderGallery);
 router.add('/albums', renderAlbums);
 router.add('/albums/:id', renderAlbumView);
-router.add('/places', renderPlaces);
-router.add('/places/:id', renderPlaceView);
+// router.add('/map', renderMap); // TODO: implement new map
 router.add('/shares', renderShares);
 router.add('/stats', renderStats);
 router.add('/sync', renderSync);
