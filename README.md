@@ -14,28 +14,37 @@ A self-hosted family photo gallery with automatic photo processing, organization
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Scanner   │────▶│  Processor  │     │     API     │
-│   :8001     │     │   :8002     │     │   :9812     │
-│             │     │             │     │  (future)   │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       └───────────────────┴───────────────────┘
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-        ┌─────▼─────┐            ┌──────▼──────┐
-        │   Redis   │            │  PostgreSQL │
-        │   :6379   │            │    :5432    │
-        └───────────┘            └─────────────┘
+                         ┌─────────────┐
+                         │     API     │
+                         │   :9812     │
+                         │  (frontend) │
+                         └──────┬──────┘
+                                │
+       ┌────────────────────────┼────────────────────────┐
+       │                        │                        │
+┌──────▼──────┐          ┌──────▼──────┐          ┌──────▼──────┐
+│   Scanner   │─────────▶│  Processor  │          │   Places    │
+│   :8001     │  queue   │   :8002     │          │   :8003     │
+└─────────────┘          └─────────────┘          └─────────────┘
+                                │                        │
+                                └────────────┬───────────┘
+                                             │
+                        ┌────────────────────┼────────────────────┐
+                        │                    │                    │
+                  ┌─────▼─────┐        ┌─────▼─────┐        ┌─────▼─────┐
+                  │   Redis   │        │ PostgreSQL│        │ Nominatim │
+                  │   :6379   │        │   :5432   │        │ (external)│
+                  └───────────┘        └───────────┘        └───────────┘
 ```
 
 ### Services
 
 | Service | Port | Description |
 |---------|------|-------------|
+| **API** | 9812 | Main HTTP API for frontend, authentication, file serving |
 | **Scanner** | 8001 | Watches `/uploads` for new files, queues them for processing |
 | **Processor** | 8002 | Processes files: creates previews, extracts metadata |
+| **Places** | 8003 | Assigns photos to places using reverse geocoding (Nominatim) |
 | **PostgreSQL** | 5432 | Stores all metadata, albums, places |
 | **Redis** | 6379 | Task queue (Asynq) and pub/sub for events |
 
@@ -110,12 +119,16 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 |----------|---------|-------------|
 | `POSTGRES_PASSWORD` | `imgable` | Database password |
 | `DATA_PATH` | `/data/imgable` | Root directory for all data (uploads, media, failed created automatically) |
+| `IMGABLE_PASSWORD` | *required* | Password for web authentication |
+| `JWT_EXPIRY_DAYS` | `30` | JWT token expiry in days |
+| `API_PORT` | `9812` | External port for API server |
 | `WORKERS` | `4` | Number of concurrent processor workers |
 | `MAX_MEMORY_MB` | `1024` | Memory limit for processor |
 | `PREVIEW_QUALITY` | `85` | WebP quality (1-100) |
 | `PREVIEW_SMALL_PX` | `800` | Small preview size (longest edge) |
 | `PREVIEW_LARGE_PX` | `2500` | Large preview size |
 | `SCAN_INTERVAL_SEC` | `60` | Polling interval (fallback for fsnotify) |
+| `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | Nominatim API URL for geocoding |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
 | `LOG_FORMAT` | `text` | Log format: text or json |
 
@@ -142,6 +155,34 @@ curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
 | `/retry/:path` | POST | Retry a failed file |
 | `/failed/:path` | DELETE | Delete a failed file |
 | `/metrics` | GET | Prometheus metrics |
+
+### Places Service (:8003)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/v1/status` | GET | Current status and pending photos count |
+| `/api/v1/run` | POST | Trigger manual geocoding run |
+
+### API Service (:9812)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/v1/login` | POST | Authentication (returns JWT) |
+| `/api/v1/photos` | GET | List photos with pagination |
+| `/api/v1/photos/{id}` | GET/PATCH/DELETE | Photo operations |
+| `/api/v1/albums` | GET/POST | List/create albums |
+| `/api/v1/albums/{id}` | GET/PATCH/DELETE | Album operations |
+| `/api/v1/places` | GET | List places |
+| `/api/v1/map/clusters` | GET | Get photo clusters for map view |
+| `/api/v1/map/bounds` | GET | Get bounds of all photos |
+| `/api/v1/shares` | GET/POST | List/create share links |
+| `/api/v1/stats` | GET | Gallery statistics |
+| `/api/v1/upload` | POST | Upload new photos |
+| `/api/v1/events/stream` | GET | SSE events stream |
+| `/api/v1/sync/*` | * | Proxy to scanner/processor/places |
+| `/s/{code}` | GET | Public share access (no auth) |
 
 ## File Processing Flow
 
@@ -251,15 +292,29 @@ imgable/
 │       ├── watcher/
 │       ├── queue/
 │       └── api/
-└── processor/        # Processor service
+├── processor/        # Processor service
+│   ├── Dockerfile
+│   └── internal/
+│       ├── worker/
+│       ├── image/
+│       ├── video/
+│       ├── metadata/
+│       ├── geo/
+│       └── api/
+├── places/           # Places service (geocoding)
+│   ├── Dockerfile
+│   └── internal/
+│       ├── worker/
+│       ├── nominatim/
+│       └── api/
+└── api/              # Main API server
     ├── Dockerfile
     └── internal/
-        ├── worker/
-        ├── image/
-        ├── video/
-        ├── metadata/
-        ├── geo/
-        └── api/
+        ├── server/
+        ├── handlers/
+        ├── storage/
+        ├── auth/
+        └── files/
 ```
 
 ### Running Tests
