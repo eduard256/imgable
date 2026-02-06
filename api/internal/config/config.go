@@ -37,6 +37,7 @@ type Config struct {
 	// Service URLs (for proxy)
 	ScannerURL   string
 	ProcessorURL string
+	PlacesURL    string
 
 	// Rate limiting
 	LoginRateLimit int // requests per minute
@@ -76,6 +77,7 @@ func Load() (*Config, error) {
 		// Service URLs
 		ScannerURL:   getEnvString("SCANNER_URL", "http://localhost:8001"),
 		ProcessorURL: getEnvString("PROCESSOR_URL", "http://localhost:8002"),
+		PlacesURL:    getEnvString("PLACES_URL", "http://localhost:8003"),
 
 		// Rate limiting
 		LoginRateLimit: getEnvInt("RATE_LIMIT_LOGIN", 5),

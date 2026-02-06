@@ -99,10 +99,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// SSE Events
 			r.Get("/events/stream", eventsHandler.Stream)
 
-			// Sync proxy (to scanner and processor)
+			// Sync proxy (to scanner, processor, and places)
 			r.Route("/sync", func(r chi.Router) {
 				r.HandleFunc("/scanner/*", syncHandler.ProxyScanner)
 				r.HandleFunc("/processor/*", syncHandler.ProxyProcessor)
+				r.HandleFunc("/places/*", syncHandler.ProxyPlaces)
 			})
 		})
 	})

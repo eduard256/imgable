@@ -18,6 +18,7 @@ type SyncHandler struct {
 	logger         *slog.Logger
 	scannerProxy   *httputil.ReverseProxy
 	processorProxy *httputil.ReverseProxy
+	placesProxy    *httputil.ReverseProxy
 }
 
 // NewSyncHandler creates a new SyncHandler.
@@ -43,6 +44,15 @@ func NewSyncHandler(cfg *config.Config, logger *slog.Logger) *SyncHandler {
 	} else {
 		h.processorProxy = httputil.NewSingleHostReverseProxy(processorURL)
 		h.processorProxy.ErrorHandler = h.proxyErrorHandler
+	}
+
+	// Create places proxy
+	placesURL, err := url.Parse(cfg.PlacesURL)
+	if err != nil {
+		logger.Error("invalid places URL", slog.Any("error", err))
+	} else {
+		h.placesProxy = httputil.NewSingleHostReverseProxy(placesURL)
+		h.placesProxy.ErrorHandler = h.proxyErrorHandler
 	}
 
 	return h
@@ -80,6 +90,23 @@ func (h *SyncHandler) ProxyProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.processorProxy.ServeHTTP(w, r)
+}
+
+// ProxyPlaces proxies requests to the places service.
+// Strips /api/v1/sync/places prefix from the path.
+func (h *SyncHandler) ProxyPlaces(w http.ResponseWriter, r *http.Request) {
+	if h.placesProxy == nil {
+		http.Error(w, `{"error": "places not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	// Strip prefix from path
+	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/v1/sync/places")
+	if r.URL.Path == "" {
+		r.URL.Path = "/"
+	}
+
+	h.placesProxy.ServeHTTP(w, r)
 }
 
 // proxyErrorHandler handles proxy errors.
