@@ -95,7 +95,7 @@ docker compose ps
 
 # Check if all healthy
 HEALTHY_COUNT=$(docker compose ps --format json | grep -c '"healthy"' 2>/dev/null || echo "0")
-if [ "$HEALTHY_COUNT" -ge 5 ]; then
+if [ "$HEALTHY_COUNT" -ge 6 ]; then
     echo ""
     log "Reset complete! All services are healthy."
 else
