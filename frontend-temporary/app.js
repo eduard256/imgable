@@ -334,6 +334,7 @@ async function renderGallery() {
             <div class="selection-bar" id="selection-bar" style="display:none">
                 <span id="selection-count">0 selected</span>
                 <button onclick="bulkAddToAlbum()">Add to Album</button>
+                <button onclick="bulkShare()">Share</button>
                 <button onclick="bulkDelete()">Delete</button>
                 <button onclick="toggleSelectMode()">Cancel</button>
             </div>
@@ -635,6 +636,89 @@ async function bulkRemoveFromAlbum() {
         renderAlbumView(currentAlbumId);
     } catch (err) {
         alert('Error: ' + err.message);
+    }
+}
+
+async function bulkShare() {
+    if (selectedPhotos.size === 0) {
+        alert('No photos selected');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="bulk-share-modal">
+            <h3>Share ${selectedPhotos.size} photos</h3>
+            <div class="form-group">
+                <label>Album name</label>
+                <input type="text" id="bulk-share-name" placeholder="Shared photos" value="Shared ${new Date().toLocaleDateString('ru-RU')}">
+            </div>
+            <div class="form-group">
+                <label>Password (optional)</label>
+                <input type="text" id="bulk-share-password" placeholder="Leave empty for no password">
+            </div>
+            <div class="form-group">
+                <label>Expires in days (optional)</label>
+                <input type="number" id="bulk-share-expires" placeholder="Leave empty for no expiration" min="1">
+            </div>
+            <div id="bulk-share-result" style="display:none">
+                <label>Share link:</label>
+                <div class="share-url">
+                    <input type="text" id="bulk-share-url" readonly>
+                    <button onclick="navigator.clipboard.writeText($('#bulk-share-url').value); alert('Copied!')">Copy</button>
+                </div>
+            </div>
+            <div class="buttons" id="bulk-share-buttons">
+                <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                <button onclick="createBulkShare()">Create Share Link</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    $('#bulk-share-name').focus();
+}
+
+async function createBulkShare() {
+    const name = $('#bulk-share-name').value.trim();
+    const password = $('#bulk-share-password').value.trim() || null;
+    const expiresDays = $('#bulk-share-expires').value ? parseInt($('#bulk-share-expires').value) : null;
+
+    if (!name) {
+        alert('Enter album name');
+        return;
+    }
+
+    const btn = $('#bulk-share-buttons button:last-child');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+        // 1. Create album
+        const albumData = await api.post('/api/v1/albums', { name });
+        const albumId = albumData.id;
+
+        // 2. Add photos to album
+        await api.post(`/api/v1/albums/${albumId}/photos`, { photo_ids: Array.from(selectedPhotos) });
+
+        // 3. Create share link
+        const shareBody = { type: 'album', album_id: albumId };
+        if (password) shareBody.password = password;
+        if (expiresDays) shareBody.expires_days = expiresDays;
+
+        const shareData = await api.post('/api/v1/shares', shareBody);
+        const url = location.origin + shareData.url;
+
+        // Show result
+        $('#bulk-share-result').style.display = 'block';
+        $('#bulk-share-url').value = url;
+        $('#bulk-share-buttons').innerHTML = `
+            <button onclick="this.closest('.modal-overlay').remove(); toggleSelectMode();">Done</button>
+        `;
+    } catch (err) {
+        alert('Error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Create Share Link';
     }
 }
 
@@ -1149,7 +1233,12 @@ function renderSharePhotos(photos) {
     for (const photo of photos) {
         const div = document.createElement('div');
         div.className = `photo-item ${photo.type === 'video' ? 'video' : ''}`;
-        div.innerHTML = `<img src="${API_BASE}${photo.small}" loading="lazy" alt="">`;
+        // Add password to image URL if needed
+        let imgUrl = `${API_BASE}${photo.small}`;
+        if (sharePassword) {
+            imgUrl += `&password=${encodeURIComponent(sharePassword)}`;
+        }
+        div.innerHTML = `<img src="${imgUrl}" loading="lazy" alt="">`;
         grid.appendChild(div);
     }
 }
@@ -1209,7 +1298,11 @@ async function submitSharePassword(e, code) {
     try {
         const res = await fetch(`${API_BASE}/s/${code}?password=${encodeURIComponent(password)}`);
         if (res.ok) {
-            location.reload(); // Simple reload with password in URL
+            // Save password and re-render the share page
+            sharePassword = password;
+            const newUrl = `${location.pathname}?password=${encodeURIComponent(password)}`;
+            history.replaceState(null, '', newUrl);
+            renderShare(code);
         } else {
             alert('Invalid password');
         }
