@@ -47,6 +47,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	syncHandler := handlers.NewSyncHandler(deps.Config, deps.Logger)
 	eventsHandler := handlers.NewEventsHandler(deps.Storage, deps.Logger)
 	filesHandler := files.NewHandler(deps.Config, deps.JWTAuth, deps.Logger)
+	mapHandler := handlers.NewMapHandler(deps.Storage, deps.Config, deps.Logger)
 
 	// Auth middleware
 	requireAuth := auth.Middleware(deps.JWTAuth)
@@ -83,6 +84,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// Places
 			r.Get("/places", placesHandler.List)
 			r.Get("/places/{id}", placesHandler.Get)
+
+			// Map (photo coordinates with clustering)
+			r.Get("/map/clusters", mapHandler.GetClusters)
+			r.Get("/map/bounds", mapHandler.GetBounds)
 
 			// Shares
 			r.Get("/shares", sharesHandler.List)

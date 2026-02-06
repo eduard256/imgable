@@ -83,6 +83,15 @@ type PhotoListParams struct {
 	Favorite   *bool
 	Sort       string // "date", "created", "size"
 	Order      string // "desc", "asc"
+	Bounds     *GeoBounds // Geographic filter for map view
+}
+
+// GeoBounds represents geographic boundaries for filtering photos.
+type GeoBounds struct {
+	North float64
+	South float64
+	East  float64
+	West  float64
 }
 
 // GetPhotoGroups returns photo counts grouped by month.
@@ -178,6 +187,17 @@ func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]Pho
 		conditions = append(conditions, fmt.Sprintf("is_favorite = $%d", argNum))
 		args = append(args, *params.Favorite)
 		argNum++
+	}
+
+	// Geographic bounds filter (for map view)
+	if params.Bounds != nil {
+		conditions = append(conditions, fmt.Sprintf("gps_lat BETWEEN $%d AND $%d", argNum, argNum+1))
+		args = append(args, params.Bounds.South, params.Bounds.North)
+		argNum += 2
+
+		conditions = append(conditions, fmt.Sprintf("gps_lon BETWEEN $%d AND $%d", argNum, argNum+1))
+		args = append(args, params.Bounds.West, params.Bounds.East)
+		argNum += 2
 	}
 
 	// Cursor pagination

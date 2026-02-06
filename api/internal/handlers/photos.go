@@ -80,6 +80,16 @@ func (h *PhotosHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /api/v1/photos.
 // Returns paginated list of photos with cursor-based pagination.
+//
+// Query parameters:
+//   - limit: Max photos to return (default 100, max 500)
+//   - cursor: Pagination cursor
+//   - month: Filter by month "2024-12" or "unknown"
+//   - type: Filter by "photo" or "video"
+//   - favorite: Filter by favorite status "true" or "false"
+//   - sort: Sort by "date", "created", or "size"
+//   - order: Sort order "desc" or "asc"
+//   - north, south, east, west: Geographic bounds filter (all required together)
 func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	params := storage.PhotoListParams{
@@ -100,6 +110,14 @@ func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 		fav := favStr == "true" || favStr == "1"
 		params.Favorite = &fav
 	}
+
+	// Parse geographic bounds filter (for map cluster clicks)
+	bounds, err := parseGeoBounds(r)
+	if err != nil {
+		response.BadRequest(w, err.Error())
+		return
+	}
+	params.Bounds = bounds
 
 	// Fetch photos
 	photos, nextCursor, err := h.storage.ListPhotos(r.Context(), params)
@@ -507,4 +525,64 @@ func parseIntParam(r *http.Request, name string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+// parseGeoBounds parses geographic bounds from query parameters.
+// Returns nil if no bounds parameters are provided.
+// Returns error if bounds are partially provided or invalid.
+func parseGeoBounds(r *http.Request) (*storage.GeoBounds, error) {
+	q := r.URL.Query()
+	northStr := q.Get("north")
+	southStr := q.Get("south")
+	eastStr := q.Get("east")
+	westStr := q.Get("west")
+
+	// Check if any bounds parameter is provided
+	hasAny := northStr != "" || southStr != "" || eastStr != "" || westStr != ""
+	if !hasAny {
+		return nil, nil
+	}
+
+	// If any is provided, all must be provided
+	if northStr == "" || southStr == "" || eastStr == "" || westStr == "" {
+		return nil, fmt.Errorf("all bounds parameters (north, south, east, west) are required together")
+	}
+
+	north, err := strconv.ParseFloat(northStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("north must be a valid number")
+	}
+
+	south, err := strconv.ParseFloat(southStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("south must be a valid number")
+	}
+
+	east, err := strconv.ParseFloat(eastStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("east must be a valid number")
+	}
+
+	west, err := strconv.ParseFloat(westStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("west must be a valid number")
+	}
+
+	// Validate ranges
+	if north < -90 || north > 90 || south < -90 || south > 90 {
+		return nil, fmt.Errorf("latitude must be between -90 and 90")
+	}
+	if east < -180 || east > 180 || west < -180 || west > 180 {
+		return nil, fmt.Errorf("longitude must be between -180 and 180")
+	}
+	if south > north {
+		return nil, fmt.Errorf("south must be less than north")
+	}
+
+	return &storage.GeoBounds{
+		North: north,
+		South: south,
+		East:  east,
+		West:  west,
+	}, nil
 }
