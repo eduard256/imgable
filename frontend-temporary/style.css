@@ -77,7 +77,208 @@ input { padding: 8px; border: 1px solid #ccc; }
 .album-actions { display: flex; gap: 10px; }
 .back-link { text-decoration: none; font-size: 20px; }
 
-/* Map - TODO: add MapLibre styles */
+/* Map */
+#map {
+    width: 100%;
+    height: calc(100vh - 60px);
+    border-radius: 0;
+}
+
+.map-container {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 60px);
+}
+
+/* Cluster markers */
+.cluster-marker {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #0066cc;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.15s ease;
+}
+
+.cluster-marker:hover {
+    transform: scale(1.1);
+    z-index: 10 !important;
+}
+
+.cluster-marker img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+.cluster-marker .count {
+    position: absolute;
+    bottom: -4px;
+    right: -4px;
+    background: #0066cc;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Single photo marker */
+.photo-marker {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #00aa44;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.15s ease;
+}
+
+.photo-marker:hover {
+    transform: scale(1.15);
+    z-index: 10 !important;
+}
+
+.photo-marker img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+/* Map loading state */
+.map-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255,255,255,0.9);
+    padding: 20px 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 100;
+}
+
+/* Map info panel */
+.map-info {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.95);
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    font-size: 13px;
+    color: #333;
+    z-index: 100;
+}
+
+/* Cluster gallery modal */
+.cluster-gallery-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+}
+
+.cluster-gallery-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    color: #fff;
+    background: rgba(0,0,0,0.5);
+}
+
+.cluster-gallery-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.cluster-gallery-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.cluster-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.cluster-gallery-item {
+    aspect-ratio: 1;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 4px;
+    background: #333;
+}
+
+.cluster-gallery-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.2s ease;
+}
+
+.cluster-gallery-item:hover img {
+    transform: scale(1.05);
+}
+
+.cluster-gallery-item.video::after {
+    content: "▶";
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 3px;
+}
+
+.cluster-gallery-load-more {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 20px;
+    color: #fff;
+}
+
+.cluster-gallery-load-more button {
+    background: #0066cc;
+    color: #fff;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.cluster-gallery-load-more button:hover {
+    background: #0052a3;
+}
 
 /* Sync Status */
 .sync-section { background: #fff; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; }

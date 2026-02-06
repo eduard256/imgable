@@ -292,6 +292,7 @@ function renderHeader(active) {
                 <nav class="nav">
                     <a href="/" class="${active === 'gallery' ? 'active' : ''}" data-link>Gallery</a>
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
+                    <a href="/map" class="${active === 'map' ? 'active' : ''}" data-link>Map</a>
                     <a href="/shares" class="${active === 'shares' ? 'active' : ''}" data-link>Shares</a>
                     <a href="/stats" class="${active === 'stats' ? 'active' : ''}" data-link>Stats</a>
                     <a href="/sync" class="${active === 'sync' ? 'active' : ''}" data-link>Sync</a>
@@ -1131,7 +1132,320 @@ function setCoverPhoto(albumId, photoId, name, description) {
     }, 50);
 }
 
-// Map - TODO: implement with MapLibre GL JS + coordinate-based clustering
+// Map with MapLibre GL JS + coordinate-based clustering
+let mapInstance = null;
+let mapMarkers = [];
+let clusterGalleryBounds = null;
+let clusterGalleryPhotos = [];
+let clusterGalleryHasMore = false;
+let clusterGalleryCursor = null;
+
+async function renderMap() {
+    html($('#app'), renderHeader('map') + `
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="map-loading" id="map-loading">Loading map...</div>
+            <div class="map-info" id="map-info"></div>
+        </div>
+    `);
+
+    try {
+        // Get initial bounds to center map
+        const boundsData = await api.get('/api/v1/map/bounds');
+
+        if (boundsData.total === 0) {
+            html($('#map-loading'), 'No photos with GPS data');
+            return;
+        }
+
+        // Calculate center from bounds
+        const center = [
+            (boundsData.bounds.e + boundsData.bounds.w) / 2,
+            (boundsData.bounds.n + boundsData.bounds.s) / 2
+        ];
+
+        // Initialize MapLibre with Liberty style
+        mapInstance = new maplibregl.Map({
+            container: 'map',
+            style: 'https://tiles.openfreemap.org/styles/liberty',
+            center: center,
+            zoom: 4,
+            pitch: 0,
+            bearing: 0,
+            antialias: true
+        });
+
+        // Add navigation controls
+        mapInstance.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        // Wait for map to load
+        mapInstance.on('load', async () => {
+            $('#map-loading').style.display = 'none';
+
+            // Add 3D buildings layer
+            add3DBuildings();
+
+            // Load initial clusters
+            await loadMapClusters();
+
+            // Update info
+            updateMapInfo(boundsData.total);
+        });
+
+        // Reload clusters on map move/zoom
+        let moveTimeout = null;
+        mapInstance.on('moveend', () => {
+            clearTimeout(moveTimeout);
+            moveTimeout = setTimeout(loadMapClusters, 150);
+        });
+
+    } catch (err) {
+        html($('#map-loading'), `Error: ${err.message}`);
+    }
+}
+
+function add3DBuildings() {
+    // Check if buildings layer exists in the style
+    const layers = mapInstance.getStyle().layers;
+    const labelLayerId = layers.find(
+        (layer) => layer.type === 'symbol' && layer.layout['text-field']
+    )?.id;
+
+    mapInstance.addLayer(
+        {
+            id: '3d-buildings',
+            source: 'openmaptiles',
+            'source-layer': 'building',
+            type: 'fill-extrusion',
+            minzoom: 14,
+            paint: {
+                'fill-extrusion-color': [
+                    'interpolate', ['linear'], ['get', 'render_height'],
+                    0, '#e8e8e8',
+                    100, '#d0d0d0',
+                    200, '#b8b8b8'
+                ],
+                'fill-extrusion-height': ['get', 'render_height'],
+                'fill-extrusion-base': ['get', 'render_min_height'],
+                'fill-extrusion-opacity': 0.7
+            }
+        },
+        labelLayerId
+    );
+}
+
+async function loadMapClusters() {
+    if (!mapInstance) return;
+
+    const bounds = mapInstance.getBounds();
+    const zoom = Math.floor(mapInstance.getZoom());
+
+    try {
+        const data = await api.get(
+            `/api/v1/map/clusters?north=${bounds.getNorth()}&south=${bounds.getSouth()}` +
+            `&east=${bounds.getEast()}&west=${bounds.getWest()}&zoom=${zoom}`
+        );
+
+        // Clear existing markers
+        mapMarkers.forEach(m => m.remove());
+        mapMarkers = [];
+
+        // Add new markers
+        for (const cluster of data.clusters) {
+            const el = createMarkerElement(cluster);
+
+            const marker = new maplibregl.Marker({ element: el })
+                .setLngLat([cluster.lon, cluster.lat])
+                .addTo(mapInstance);
+
+            // Click handler
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (cluster.photo_id) {
+                    // Single photo - open photo viewer
+                    openSinglePhoto(cluster.photo_id);
+                } else {
+                    // Cluster - open gallery
+                    openClusterGallery(cluster.bounds, cluster.count);
+                }
+            });
+
+            mapMarkers.push(marker);
+        }
+
+        updateMapInfo(data.total);
+
+    } catch (err) {
+        console.error('Failed to load clusters:', err);
+    }
+}
+
+function createMarkerElement(cluster) {
+    const el = document.createElement('div');
+
+    if (cluster.count === 1) {
+        // Single photo marker
+        el.className = 'photo-marker';
+        el.innerHTML = `<img src="${API_BASE}${cluster.preview}" alt="">`;
+    } else {
+        // Cluster marker
+        el.className = 'cluster-marker';
+        el.innerHTML = `
+            <img src="${API_BASE}${cluster.preview}" alt="">
+            <span class="count">${cluster.count > 99 ? '99+' : cluster.count}</span>
+        `;
+    }
+
+    return el;
+}
+
+function updateMapInfo(total) {
+    const info = $('#map-info');
+    if (info) {
+        info.textContent = `${total.toLocaleString()} photos with location`;
+    }
+}
+
+async function openSinglePhoto(photoId) {
+    try {
+        // Fetch photo details and find its index
+        const photo = await api.get(`/api/v1/photos/${photoId}`);
+
+        // Create a minimal photo list for the modal
+        currentPhotos = [{
+            id: photo.id,
+            type: photo.type,
+            blurhash: photo.blurhash,
+            small: photo.urls.small,
+            w: photo.width,
+            h: photo.height,
+            taken_at: photo.taken_at,
+            is_favorite: photo.is_favorite,
+            duration: photo.duration_sec
+        }];
+
+        openPhotoModal(0);
+    } catch (err) {
+        console.error('Failed to open photo:', err);
+    }
+}
+
+async function openClusterGallery(bounds, count) {
+    clusterGalleryBounds = bounds;
+    clusterGalleryPhotos = [];
+    clusterGalleryHasMore = false;
+    clusterGalleryCursor = null;
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'cluster-gallery-overlay';
+    overlay.id = 'cluster-gallery';
+    overlay.innerHTML = `
+        <div class="cluster-gallery-header">
+            <h3>${count} photos in this area</h3>
+            <button class="close-btn" onclick="closeClusterGallery()">&times;</button>
+        </div>
+        <div class="cluster-gallery-content">
+            <div class="cluster-gallery-grid" id="cluster-gallery-grid">
+                <div class="cluster-gallery-load-more">Loading...</div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Close on escape
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeClusterGallery();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    // Load photos
+    await loadClusterGalleryPhotos();
+}
+
+async function loadClusterGalleryPhotos() {
+    const grid = $('#cluster-gallery-grid');
+    if (!grid) return;
+
+    try {
+        let url = `/api/v1/photos?north=${clusterGalleryBounds.n}&south=${clusterGalleryBounds.s}` +
+                  `&east=${clusterGalleryBounds.e}&west=${clusterGalleryBounds.w}&limit=50`;
+
+        if (clusterGalleryCursor) {
+            url += `&cursor=${clusterGalleryCursor}`;
+        }
+
+        const data = await api.get(url);
+
+        clusterGalleryHasMore = data.has_more;
+        clusterGalleryCursor = data.next_cursor;
+
+        // Remove loading indicator
+        const loading = grid.querySelector('.cluster-gallery-load-more');
+        if (loading && clusterGalleryPhotos.length === 0) {
+            loading.remove();
+        }
+
+        // Add photos to gallery
+        const startIndex = clusterGalleryPhotos.length;
+        clusterGalleryPhotos.push(...data.photos);
+
+        for (let i = 0; i < data.photos.length; i++) {
+            const photo = data.photos[i];
+            const index = startIndex + i;
+
+            const item = document.createElement('div');
+            item.className = `cluster-gallery-item ${photo.type === 'video' ? 'video' : ''}`;
+            item.innerHTML = `<img src="${API_BASE}${photo.small}" loading="lazy" alt="">`;
+            item.onclick = () => openClusterPhoto(index);
+
+            grid.appendChild(item);
+        }
+
+        // Add load more button if needed
+        if (clusterGalleryHasMore) {
+            const existing = grid.querySelector('.cluster-gallery-load-more');
+            if (existing) existing.remove();
+
+            const loadMore = document.createElement('div');
+            loadMore.className = 'cluster-gallery-load-more';
+            loadMore.innerHTML = '<button onclick="loadClusterGalleryPhotos()">Load more</button>';
+            grid.appendChild(loadMore);
+        }
+
+    } catch (err) {
+        console.error('Failed to load cluster photos:', err);
+        grid.innerHTML = `<div class="cluster-gallery-load-more">Error: ${err.message}</div>`;
+    }
+}
+
+function openClusterPhoto(index) {
+    // Set current photos from cluster gallery
+    currentPhotos = clusterGalleryPhotos;
+
+    // Close cluster gallery
+    const gallery = $('#cluster-gallery');
+    if (gallery) gallery.style.display = 'none';
+
+    // Open photo modal
+    openPhotoModal(index);
+}
+
+function closeClusterGallery() {
+    const gallery = $('#cluster-gallery');
+    if (gallery) {
+        gallery.remove();
+    }
+    clusterGalleryPhotos = [];
+    clusterGalleryBounds = null;
+}
+
+// Override close modal to reopen cluster gallery if it was open
+const originalClosePhotoModal = typeof closePhotoModal === 'function' ? closePhotoModal : null;
 
 // Sync Status
 async function renderSync() {
@@ -2035,7 +2349,7 @@ router.add('/login', renderLogin);
 router.add('/', renderGallery);
 router.add('/albums', renderAlbums);
 router.add('/albums/:id', renderAlbumView);
-// router.add('/map', renderMap); // TODO: implement new map
+router.add('/map', renderMap);
 router.add('/shares', renderShares);
 router.add('/stats', renderStats);
 router.add('/sync', renderSync);
