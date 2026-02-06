@@ -275,6 +275,7 @@ function renderHeader(active) {
                     <a href="/" class="${active === 'gallery' ? 'active' : ''}" data-link>Gallery</a>
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
                     <a href="/places" class="${active === 'places' ? 'active' : ''}" data-link>Map</a>
+                    <a href="/shares" class="${active === 'shares' ? 'active' : ''}" data-link>Shares</a>
                     <a href="/sync" class="${active === 'sync' ? 'active' : ''}" data-link>Sync</a>
                     <a href="/upload" class="${active === 'upload' ? 'active' : ''}" data-link>Upload</a>
                 </nav>
@@ -1226,20 +1227,86 @@ async function renderShare(code) {
     }
 }
 
-function renderSharePhotos(photos) {
+function renderSharePhotos(photos, startIndex = 0) {
     const grid = $('#share-photo-grid');
     if (!grid) return;
 
-    for (const photo of photos) {
+    for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
+        const index = startIndex + i;
         const div = document.createElement('div');
         div.className = `photo-item ${photo.type === 'video' ? 'video' : ''}`;
+        div.dataset.index = index;
         // Add password to image URL if needed
         let imgUrl = `${API_BASE}${photo.small}`;
         if (sharePassword) {
             imgUrl += `&password=${encodeURIComponent(sharePassword)}`;
         }
         div.innerHTML = `<img src="${imgUrl}" loading="lazy" alt="">`;
+        div.onclick = () => openSharePhotoModal(index);
         grid.appendChild(div);
+    }
+}
+
+function openSharePhotoModal(index) {
+    const photo = sharePhotos[index];
+    if (!photo) return;
+
+    // Build large/video URL
+    let mediaUrl;
+    if (photo.type === 'video') {
+        mediaUrl = `${API_BASE}/s/${shareCode}/photo/video?id=${photo.id}`;
+    } else {
+        mediaUrl = `${API_BASE}/s/${shareCode}/photo/large?id=${photo.id}`;
+    }
+    if (sharePassword) {
+        mediaUrl += `&password=${encodeURIComponent(sharePassword)}`;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'share-photo-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <span>${index + 1} / ${sharePhotos.length}</span>
+            <button class="close-btn" onclick="closeSharePhotoModal()">×</button>
+        </div>
+        <div class="modal-content">
+            ${index > 0 ? '<button class="modal-nav prev" onclick="navSharePhoto(-1)">‹</button>' : ''}
+            ${photo.type === 'video'
+                ? `<video src="${mediaUrl}" controls autoplay></video>`
+                : `<img src="${mediaUrl}" alt="">`
+            }
+            ${index < sharePhotos.length - 1 ? '<button class="modal-nav next" onclick="navSharePhoto(1)">›</button>' : ''}
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Store current index for navigation
+    modal.dataset.currentIndex = index;
+
+    modal.onclick = (e) => { if (e.target === modal) closeSharePhotoModal(); };
+    document.onkeydown = (e) => {
+        if (e.key === 'Escape') closeSharePhotoModal();
+        if (e.key === 'ArrowLeft') navSharePhoto(-1);
+        if (e.key === 'ArrowRight') navSharePhoto(1);
+    };
+}
+
+function closeSharePhotoModal() {
+    const modal = $('#share-photo-modal');
+    if (modal) modal.remove();
+    document.onkeydown = null;
+}
+
+function navSharePhoto(dir) {
+    const modal = $('#share-photo-modal');
+    if (!modal) return;
+    const currentIndex = parseInt(modal.dataset.currentIndex);
+    const newIndex = currentIndex + dir;
+    if (newIndex >= 0 && newIndex < sharePhotos.length) {
+        closeSharePhotoModal();
+        openSharePhotoModal(newIndex);
     }
 }
 
@@ -1280,10 +1347,11 @@ async function loadMoreSharePhotos() {
         const data = await res.json();
 
         if (res.ok && data.photos) {
+            const startIndex = sharePhotos.length;
             sharePhotos = [...sharePhotos, ...data.photos];
             shareHasMore = data.has_more;
             shareNextCursor = data.next_cursor;
-            renderSharePhotos(data.photos);
+            renderSharePhotos(data.photos, startIndex);
         }
     } catch (err) {
         console.error('Failed to load more photos:', err);
@@ -1735,6 +1803,81 @@ function clearCompletedUploads() {
     updateSummary();
 }
 
+// Shares Management Page
+async function renderShares() {
+    html($('#app'), renderHeader('shares') + `
+        <div class="container">
+            <h2>Shared Links</h2>
+            <div class="shares-list" id="shares-list">Loading...</div>
+        </div>
+    `);
+
+    await loadShares();
+}
+
+async function loadShares() {
+    try {
+        const data = await api.get('/api/v1/shares');
+        const shares = data.shares;
+
+        if (shares.length === 0) {
+            html($('#shares-list'), '<p class="empty-message">No shared links yet. Share photos or albums from the gallery.</p>');
+            return;
+        }
+
+        let listHtml = '<div class="shares-grid">';
+        for (const share of shares) {
+            const url = location.origin + share.url;
+            const createdDate = formatDate(share.created_at);
+            const expiresText = share.expires_at
+                ? `Expires: ${formatDate(share.expires_at)}`
+                : 'No expiration';
+            const isExpired = share.expires_at && share.expires_at * 1000 < Date.now();
+
+            listHtml += `
+                <div class="share-card ${isExpired ? 'expired' : ''}" data-id="${share.id}">
+                    <div class="share-card-header">
+                        <span class="share-type">${share.type === 'photo' ? 'Photo' : 'Album'}</span>
+                        ${share.has_password ? '<span class="share-badge">Password</span>' : ''}
+                        ${isExpired ? '<span class="share-badge expired">Expired</span>' : ''}
+                    </div>
+                    <div class="share-card-url">
+                        <input type="text" value="${url}" readonly onclick="this.select()">
+                        <button onclick="navigator.clipboard.writeText('${url}'); alert('Copied!')">Copy</button>
+                    </div>
+                    <div class="share-card-meta">
+                        <span>Views: ${share.view_count}</span>
+                        <span>${expiresText}</span>
+                    </div>
+                    <div class="share-card-meta">
+                        <span>Created: ${createdDate}</span>
+                    </div>
+                    <div class="share-card-actions">
+                        <a href="${share.url}" target="_blank" class="btn-open">Open</a>
+                        <button onclick="deleteShare('${share.id}')" class="btn-delete">Delete</button>
+                    </div>
+                </div>
+            `;
+        }
+        listHtml += '</div>';
+
+        html($('#shares-list'), listHtml);
+    } catch (err) {
+        html($('#shares-list'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+async function deleteShare(id) {
+    if (!confirm('Delete this share link? Anyone with the link will no longer have access.')) return;
+
+    try {
+        await api.delete(`/api/v1/shares/${id}`);
+        loadShares();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
 // Setup routes
 router.add('/login', renderLogin);
 router.add('/', renderGallery);
@@ -1742,6 +1885,7 @@ router.add('/albums', renderAlbums);
 router.add('/albums/:id', renderAlbumView);
 router.add('/places', renderPlaces);
 router.add('/places/:id', renderPlaceView);
+router.add('/shares', renderShares);
 router.add('/sync', renderSync);
 router.add('/upload', renderUpload);
 router.add('/s/:code', renderShare);
