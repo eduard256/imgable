@@ -1134,13 +1134,20 @@ function setCoverPhoto(albumId, photoId, name, description) {
 
 // Map with MapLibre GL JS + coordinate-based clustering
 let mapInstance = null;
-let mapMarkers = [];
+let mapMarkersMap = new Map();  // key -> marker, for efficient updates
 let clusterGalleryBounds = null;
 let clusterGalleryPhotos = [];
 let clusterGalleryHasMore = false;
 let clusterGalleryCursor = null;
 
 async function renderMap() {
+    // Cleanup previous map instance
+    if (mapInstance) {
+        mapInstance.remove();
+        mapInstance = null;
+    }
+    mapMarkersMap.clear();
+
     html($('#app'), renderHeader('map') + `
         <div class="map-container">
             <div id="map"></div>
@@ -1164,15 +1171,14 @@ async function renderMap() {
             (boundsData.bounds.n + boundsData.bounds.s) / 2
         ];
 
-        // Initialize MapLibre with Liberty style
+        // Initialize MapLibre with simple Positron style (light, fast)
         mapInstance = new maplibregl.Map({
             container: 'map',
-            style: 'https://tiles.openfreemap.org/styles/liberty',
+            style: 'https://tiles.openfreemap.org/styles/positron',
             center: center,
             zoom: 4,
-            pitch: 0,
-            bearing: 0,
-            antialias: true
+            maxZoom: 18,
+            renderWorldCopies: false  // Prevent infinite horizontal scrolling
         });
 
         // Add navigation controls
@@ -1182,9 +1188,6 @@ async function renderMap() {
         mapInstance.on('load', async () => {
             $('#map-loading').style.display = 'none';
 
-            // Add 3D buildings layer
-            add3DBuildings();
-
             // Load initial clusters
             await loadMapClusters();
 
@@ -1192,46 +1195,16 @@ async function renderMap() {
             updateMapInfo(boundsData.total);
         });
 
-        // Reload clusters on map move/zoom
+        // Reload clusters on map move/zoom (debounced)
         let moveTimeout = null;
         mapInstance.on('moveend', () => {
             clearTimeout(moveTimeout);
-            moveTimeout = setTimeout(loadMapClusters, 150);
+            moveTimeout = setTimeout(loadMapClusters, 300);
         });
 
     } catch (err) {
         html($('#map-loading'), `Error: ${err.message}`);
     }
-}
-
-function add3DBuildings() {
-    // Check if buildings layer exists in the style
-    const layers = mapInstance.getStyle().layers;
-    const labelLayerId = layers.find(
-        (layer) => layer.type === 'symbol' && layer.layout['text-field']
-    )?.id;
-
-    mapInstance.addLayer(
-        {
-            id: '3d-buildings',
-            source: 'openmaptiles',
-            'source-layer': 'building',
-            type: 'fill-extrusion',
-            minzoom: 14,
-            paint: {
-                'fill-extrusion-color': [
-                    'interpolate', ['linear'], ['get', 'render_height'],
-                    0, '#e8e8e8',
-                    100, '#d0d0d0',
-                    200, '#b8b8b8'
-                ],
-                'fill-extrusion-height': ['get', 'render_height'],
-                'fill-extrusion-base': ['get', 'render_min_height'],
-                'fill-extrusion-opacity': 0.7
-            }
-        },
-        labelLayerId
-    );
 }
 
 async function loadMapClusters() {
@@ -1240,37 +1213,68 @@ async function loadMapClusters() {
     const bounds = mapInstance.getBounds();
     const zoom = Math.floor(mapInstance.getZoom());
 
+    // Normalize coordinates to valid range (MapLibre can return values outside -180/180)
+    const north = Math.min(Math.max(bounds.getNorth(), -90), 90);
+    const south = Math.min(Math.max(bounds.getSouth(), -90), 90);
+    let east = bounds.getEast();
+    let west = bounds.getWest();
+
+    // Wrap longitude to -180/180 range
+    while (east > 180) east -= 360;
+    while (east < -180) east += 360;
+    while (west > 180) west -= 360;
+    while (west < -180) west += 360;
+
+    // If view spans more than 360 degrees, just use full range
+    if (bounds.getEast() - bounds.getWest() >= 360) {
+        east = 180;
+        west = -180;
+    }
+
     try {
         const data = await api.get(
-            `/api/v1/map/clusters?north=${bounds.getNorth()}&south=${bounds.getSouth()}` +
-            `&east=${bounds.getEast()}&west=${bounds.getWest()}&zoom=${zoom}`
+            `/api/v1/map/clusters?north=${north}&south=${south}` +
+            `&east=${east}&west=${west}&zoom=${zoom}`
         );
 
-        // Clear existing markers
-        mapMarkers.forEach(m => m.remove());
-        mapMarkers = [];
-
-        // Add new markers
+        // Build map of new clusters by key
+        const newClusters = new Map();
         for (const cluster of data.clusters) {
-            const el = createMarkerElement(cluster);
+            const key = `${cluster.lat.toFixed(6)},${cluster.lon.toFixed(6)},${cluster.preview_id}`;
+            newClusters.set(key, cluster);
+        }
 
-            const marker = new maplibregl.Marker({ element: el })
-                .setLngLat([cluster.lon, cluster.lat])
-                .addTo(mapInstance);
+        // Remove markers that are no longer needed
+        const toRemove = [];
+        for (const [key, marker] of mapMarkersMap) {
+            if (!newClusters.has(key)) {
+                marker.remove();
+                toRemove.push(key);
+            }
+        }
+        toRemove.forEach(key => mapMarkersMap.delete(key));
 
-            // Click handler
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (cluster.photo_id) {
-                    // Single photo - open photo viewer
-                    openSinglePhoto(cluster.photo_id);
-                } else {
-                    // Cluster - open gallery
-                    openClusterGallery(cluster.bounds, cluster.count);
-                }
-            });
+        // Add new markers (only if they don't exist)
+        for (const [key, cluster] of newClusters) {
+            if (!mapMarkersMap.has(key)) {
+                const el = createMarkerElement(cluster);
 
-            mapMarkers.push(marker);
+                const marker = new maplibregl.Marker({ element: el })
+                    .setLngLat([cluster.lon, cluster.lat])
+                    .addTo(mapInstance);
+
+                // Click handler
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (cluster.photo_id) {
+                        openSinglePhoto(cluster.photo_id);
+                    } else {
+                        openClusterGallery(cluster.bounds, cluster.count);
+                    }
+                });
+
+                mapMarkersMap.set(key, marker);
+            }
         }
 
         updateMapInfo(data.total);
@@ -1331,6 +1335,10 @@ async function openSinglePhoto(photoId) {
 }
 
 async function openClusterGallery(bounds, count) {
+    // Remove existing gallery if any
+    const existing = $('#cluster-gallery');
+    if (existing) existing.remove();
+
     clusterGalleryBounds = bounds;
     clusterGalleryPhotos = [];
     clusterGalleryHasMore = false;
