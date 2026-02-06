@@ -1286,10 +1286,14 @@ async function renderSync() {
 
 async function refreshSync() {
     try {
-        const [scanner, processor] = await Promise.all([
+        const [scanner, processor, places] = await Promise.all([
             api.get('/api/v1/sync/scanner/status'),
-            api.get('/api/v1/sync/processor/status')
+            api.get('/api/v1/sync/processor/status'),
+            api.get('/api/v1/sync/places/api/v1/status')
         ]);
+
+        const lastRun = places.last_run;
+        const lastRunTime = lastRun?.started_at ? new Date(lastRun.started_at).toLocaleString() : 'Never';
 
         html($('#sync-content'), `
             <div class="sync-section">
@@ -1314,6 +1318,20 @@ async function refreshSync() {
                 <div class="sync-row"><span>Memory:</span> <span>${processor.resources?.memory_used_mb || 0} MB</span></div>
                 <div class="sync-actions">
                     <button onclick="toggleProcessor()">${processor.paused ? '▶ Resume' : '⏸ Pause'}</button>
+                </div>
+            </div>
+
+            <div class="sync-section">
+                <h3>Places</h3>
+                <div class="sync-row"><span>Status:</span> <span>${places.status}</span></div>
+                <div class="sync-row"><span>Pending photos:</span> <span>${places.pending_count || 0}</span></div>
+                <div class="sync-row"><span>Last run:</span> <span>${lastRunTime}</span></div>
+                <div class="sync-row"><span>Photos processed:</span> <span>${lastRun?.photos_processed || 0}</span></div>
+                <div class="sync-row"><span>Places created:</span> <span>${lastRun?.places_created || 0}</span></div>
+                <div class="sync-row"><span>Nominatim requests:</span> <span>${lastRun?.nominatim_requests || 0}</span></div>
+                <div class="sync-row"><span>Errors:</span> <span>${lastRun?.errors || 0}</span></div>
+                <div class="sync-actions">
+                    <button onclick="triggerPlacesRun()">🔄 Run Now</button>
                 </div>
             </div>
 
@@ -1342,6 +1360,16 @@ async function toggleProcessor() {
         } else {
             await api.post('/api/v1/sync/processor/pause');
         }
+        refreshSync();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function triggerPlacesRun() {
+    try {
+        await api.post('/api/v1/sync/places/api/v1/run');
+        alert('Places run triggered');
         refreshSync();
     } catch (err) {
         alert('Error: ' + err.message);
