@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eduard256/imgable/shared/pkg/fileutil"
 	"github.com/eduard256/imgable/shared/pkg/logger"
@@ -63,6 +65,13 @@ type ProcessResult struct {
 
 	// Blurhash for thumbnail
 	Blurhash string
+
+	// GPS from video metadata
+	GPSLat *float64
+	GPSLon *float64
+
+	// Creation time from video metadata
+	TakenAt *time.Time
 }
 
 // VideoMetadata holds ffprobe output.
@@ -73,9 +82,10 @@ type VideoMetadata struct {
 
 // FormatInfo holds video format information.
 type FormatInfo struct {
-	Duration   string `json:"duration"`
-	Size       string `json:"size"`
-	FormatName string `json:"format_name"`
+	Duration   string            `json:"duration"`
+	Size       string            `json:"size"`
+	FormatName string            `json:"format_name"`
+	Tags       map[string]string `json:"tags"`
 }
 
 // StreamInfo holds video/audio stream information.
@@ -122,6 +132,34 @@ func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) 
 	if metadata.Format.Duration != "" {
 		if duration, err := strconv.ParseFloat(metadata.Format.Duration, 64); err == nil {
 			result.DurationSec = int(duration)
+		}
+	}
+
+	// Extract GPS location from metadata tags
+	if metadata.Format.Tags != nil {
+		locationStr := ""
+		if v, ok := metadata.Format.Tags["com.apple.quicktime.location.ISO6709"]; ok {
+			locationStr = v
+		} else if v, ok := metadata.Format.Tags["location"]; ok {
+			locationStr = v
+		} else if v, ok := metadata.Format.Tags["location-eng"]; ok {
+			locationStr = v
+		}
+
+		if locationStr != "" {
+			result.GPSLat, result.GPSLon = parseISO6709(locationStr)
+		}
+
+		// Extract creation time
+		creationTime := ""
+		if v, ok := metadata.Format.Tags["creation_time"]; ok {
+			creationTime = v
+		} else if v, ok := metadata.Format.Tags["com.apple.quicktime.creationdate"]; ok {
+			creationTime = v
+		}
+
+		if creationTime != "" {
+			result.TakenAt = parseCreationTime(creationTime)
 		}
 	}
 
@@ -203,6 +241,50 @@ func (p *Processor) getMetadata(inputPath string) (*VideoMetadata, error) {
 	}
 
 	return &metadata, nil
+}
+
+// parseISO6709 parses ISO 6709 location string like "+55.7512+037.6184+089.373/"
+// Returns latitude, longitude or nil if parsing fails.
+func parseISO6709(s string) (lat, lon *float64) {
+	// Format: +/-DD.DDDD+/-DDD.DDDD[+/-AAA.AAA]/
+	// Examples:
+	//   "+55.7512+037.6184/"
+	//   "+55.7512+037.6184+089.373/"
+	//   "-33.8688+151.2093/"
+	re := regexp.MustCompile(`^([+-]?\d+\.?\d*)([+-]\d+\.?\d*)`)
+	matches := re.FindStringSubmatch(s)
+	if len(matches) < 3 {
+		return nil, nil
+	}
+
+	latVal, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return nil, nil
+	}
+
+	lonVal, err := strconv.ParseFloat(matches[2], 64)
+	if err != nil {
+		return nil, nil
+	}
+
+	return &latVal, &lonVal
+}
+
+// parseCreationTime parses video creation time from various formats.
+func parseCreationTime(s string) *time.Time {
+	formats := []string{
+		"2006-01-02T15:04:05.000000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 // extractThumbnail extracts a thumbnail from the video at the middle point.

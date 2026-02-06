@@ -252,6 +252,17 @@ func (w *Worker) processVideo(ctx context.Context, filePath, fileID string) (*mo
 		VideoCodec:       strPtr(result.VideoCodec),
 	}
 
+	// Add GPS coordinates if available (place_id is assigned by places service)
+	if result.GPSLat != nil && result.GPSLon != nil {
+		photo.GPSLat = result.GPSLat
+		photo.GPSLon = result.GPSLon
+	}
+
+	// Add taken_at if available
+	if result.TakenAt != nil {
+		photo.TakenAt = result.TakenAt
+	}
+
 	return photo, nil
 }
 
