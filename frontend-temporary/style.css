@@ -288,3 +288,68 @@ input { padding: 8px; border: 1px solid #ccc; }
         font-size: 13px;
     }
 }
+
+/* Multi-select mode */
+.selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 15px;
+    background: #333;
+    color: #fff;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+.selection-bar button {
+    background: #555;
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.selection-bar button:hover {
+    background: #666;
+}
+#selection-count {
+    font-weight: 500;
+}
+
+.photo-grid.select-mode .photo-item {
+    cursor: pointer;
+}
+.photo-grid.select-mode .photo-item::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 24px;
+    height: 24px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.3);
+    z-index: 1;
+}
+.photo-grid.select-mode .photo-item.selected::before {
+    background: #0066cc;
+    border-color: #0066cc;
+}
+.photo-grid.select-mode .photo-item.selected::after {
+    content: "✓";
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 24px;
+    height: 24px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+.photo-grid.select-mode .photo-item.selected {
+    outline: 3px solid #0066cc;
+    outline-offset: -3px;
+}

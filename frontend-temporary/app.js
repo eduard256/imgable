@@ -8,7 +8,11 @@ let currentPhotoIndex = 0;
 let isLoadingMore = false;
 let hasMorePhotos = false;
 let nextCursor = null;
-let currentLoadContext = null; // 'gallery' or 'album:id'
+let currentLoadContext = null; // 'gallery' or 'album:id' or 'place:id'
+
+// Multi-select state
+let selectMode = false;
+let selectedPhotos = new Set();
 
 // API Client
 const api = {
@@ -250,7 +254,13 @@ function appendPhotosToGrid(newPhotos) {
             <img src="${API_BASE}${photo.small}" loading="lazy" alt="">
             ${photo.duration ? `<span class="duration">${formatDuration(photo.duration)}</span>` : ''}
         `;
-        div.onclick = () => openPhotoModal(index);
+        div.onclick = () => {
+            if (selectMode) {
+                togglePhotoSelection(div.dataset.id, div);
+            } else {
+                openPhotoModal(index);
+            }
+        };
         grid.appendChild(div);
     }
 }
@@ -302,6 +312,10 @@ function renderLogin() {
 }
 
 async function renderGallery() {
+    // Reset select mode
+    selectMode = false;
+    selectedPhotos.clear();
+
     html($('#app'), renderHeader('gallery') + `
         <div class="container">
             <div class="gallery-controls">
@@ -315,6 +329,13 @@ async function renderGallery() {
                     <option value="video">Videos</option>
                     <option value="favorite">Favorites</option>
                 </select>
+                <button id="btn-select-mode" onclick="toggleSelectMode()">Select</button>
+            </div>
+            <div class="selection-bar" id="selection-bar" style="display:none">
+                <span id="selection-count">0 selected</span>
+                <button onclick="bulkAddToAlbum()">Add to Album</button>
+                <button onclick="bulkDelete()">Delete</button>
+                <button onclick="toggleSelectMode()">Cancel</button>
             </div>
             <div class="photo-grid" id="photo-grid">Loading...</div>
         </div>
@@ -360,7 +381,13 @@ async function loadPhotos() {
         html($('#photo-grid'), gridHtml);
 
         $$('.photo-item').forEach(el => {
-            el.onclick = () => openPhotoModal(parseInt(el.dataset.index));
+            el.onclick = () => {
+                if (selectMode) {
+                    togglePhotoSelection(el.dataset.id, el);
+                } else {
+                    openPhotoModal(parseInt(el.dataset.index));
+                }
+            };
         });
 
         // Setup infinite scroll after initial load
@@ -491,10 +518,130 @@ async function deletePhoto(id) {
     }
 }
 
+// Multi-select functions
+function toggleSelectMode() {
+    selectMode = !selectMode;
+    selectedPhotos.clear();
+
+    const btn = $('#btn-select-mode');
+    const bar = $('#selection-bar');
+    const grid = $('#photo-grid');
+
+    if (selectMode) {
+        if (btn) btn.textContent = 'Cancel';
+        if (bar) bar.style.display = 'flex';
+        if (grid) grid.classList.add('select-mode');
+    } else {
+        if (btn) btn.textContent = 'Select';
+        if (bar) bar.style.display = 'none';
+        if (grid) grid.classList.remove('select-mode');
+        // Remove selected class from all photos
+        $$('.photo-item.selected').forEach(el => el.classList.remove('selected'));
+    }
+    updateSelectionCount();
+}
+
+function togglePhotoSelection(id, el) {
+    if (selectedPhotos.has(id)) {
+        selectedPhotos.delete(id);
+        el.classList.remove('selected');
+    } else {
+        selectedPhotos.add(id);
+        el.classList.add('selected');
+    }
+    updateSelectionCount();
+}
+
+function updateSelectionCount() {
+    const countEl = $('#selection-count');
+    if (countEl) {
+        countEl.textContent = `${selectedPhotos.size} selected`;
+    }
+}
+
+async function bulkDelete() {
+    if (selectedPhotos.size === 0) {
+        alert('No photos selected');
+        return;
+    }
+
+    if (!confirm(`Delete ${selectedPhotos.size} photos?`)) return;
+
+    try {
+        await api.delete('/api/v1/photos', { ids: Array.from(selectedPhotos) });
+        alert(`Deleted ${selectedPhotos.size} photos`);
+        toggleSelectMode();
+        loadPhotos();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function bulkAddToAlbum() {
+    if (selectedPhotos.size === 0) {
+        alert('No photos selected');
+        return;
+    }
+
+    try {
+        const data = await api.get('/api/v1/albums');
+        const albums = data.albums.filter(a => a.type === 'manual' || a.type === 'favorites');
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="album-select-modal">
+                <h3>Add ${selectedPhotos.size} photos to album</h3>
+                ${albums.length ? albums.map(a => `<div class="album-select-item" data-id="${a.id}">${a.name} (${a.photo_count})</div>`).join('') : '<p>No albums. Create one first.</p>'}
+                <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('.album-select-item').forEach(el => {
+            el.onclick = async () => {
+                try {
+                    const result = await api.post(`/api/v1/albums/${el.dataset.id}/photos`, { photo_ids: Array.from(selectedPhotos) });
+                    modal.remove();
+                    alert(`Added ${result.added} photos to album`);
+                    toggleSelectMode();
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                }
+            };
+        });
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function bulkRemoveFromAlbum() {
+    if (selectedPhotos.size === 0) {
+        alert('No photos selected');
+        return;
+    }
+
+    if (!currentAlbumId) {
+        alert('Not in album view');
+        return;
+    }
+
+    if (!confirm(`Remove ${selectedPhotos.size} photos from album?`)) return;
+
+    try {
+        const result = await api.delete(`/api/v1/albums/${currentAlbumId}/photos`, { photo_ids: Array.from(selectedPhotos) });
+        alert(`Removed ${result.removed} photos from album`);
+        toggleSelectMode();
+        renderAlbumView(currentAlbumId);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
 async function showAddToAlbum(photoId) {
     try {
         const data = await api.get('/api/v1/albums');
-        const albums = data.albums.filter(a => a.type === 'manual');
+        const albums = data.albums.filter(a => a.type === 'manual' || a.type === 'favorites');
 
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
@@ -627,17 +774,29 @@ async function createAlbum() {
 }
 
 // Album View
+let currentAlbumId = null;
+let currentAlbumType = null;
+
 async function renderAlbumView(albumId) {
-    // Reset infinite scroll state
+    // Reset select mode and infinite scroll state
+    selectMode = false;
+    selectedPhotos.clear();
     currentPhotos = [];
     isLoadingMore = false;
     hasMorePhotos = false;
     nextCursor = null;
     currentLoadContext = `album:${albumId}`;
+    currentAlbumId = albumId;
 
     html($('#app'), renderHeader('albums') + `
         <div class="container">
             <div class="album-header" id="album-header">Loading...</div>
+            <div class="selection-bar" id="selection-bar" style="display:none">
+                <span id="selection-count">0 selected</span>
+                <button onclick="bulkRemoveFromAlbum()">Remove from Album</button>
+                <button onclick="bulkDelete()">Delete Photos</button>
+                <button onclick="toggleSelectMode()">Cancel</button>
+            </div>
             <div class="photo-grid" id="photo-grid">Loading...</div>
         </div>
     `);
@@ -648,14 +807,14 @@ async function renderAlbumView(albumId) {
         currentPhotos = data.photos;
         hasMorePhotos = data.has_more;
         nextCursor = data.next_cursor;
+        currentAlbumType = album.type;
 
         html($('#album-header'), `
             <h2><a href="/albums" data-link class="back-link">←</a> ${album.name} (${album.photo_count})</h2>
             <div class="album-actions">
-                ${album.type === 'manual' ? `
-                    <button onclick="showShareModal('album', '${album.id}')">🔗 Share</button>
-                    <button onclick="deleteAlbum('${album.id}')">🗑 Delete</button>
-                ` : ''}
+                <button id="btn-select-mode" onclick="toggleSelectMode()">Select</button>
+                <button onclick="showShareModal('album', '${album.id}')">🔗 Share</button>
+                ${album.type === 'manual' ? `<button onclick="deleteAlbum('${album.id}')">🗑 Delete</button>` : ''}
             </div>
         `);
 
@@ -672,7 +831,13 @@ async function renderAlbumView(albumId) {
         html($('#photo-grid'), gridHtml || 'No photos in album');
 
         $$('.photo-item').forEach(el => {
-            el.onclick = () => openPhotoModal(parseInt(el.dataset.index));
+            el.onclick = () => {
+                if (selectMode) {
+                    togglePhotoSelection(el.dataset.id, el);
+                } else {
+                    openPhotoModal(parseInt(el.dataset.index));
+                }
+            };
         });
 
         // Setup infinite scroll
@@ -907,7 +1072,22 @@ async function toggleProcessor() {
 }
 
 // Share View (public)
+let shareCode = null;
+let sharePassword = null;
+let sharePhotos = [];
+let shareHasMore = false;
+let shareNextCursor = null;
+let shareIsLoading = false;
+
 async function renderShare(code) {
+    // Reset state
+    shareCode = code;
+    sharePassword = new URLSearchParams(location.search).get('password') || null;
+    sharePhotos = [];
+    shareHasMore = false;
+    shareNextCursor = null;
+    shareIsLoading = false;
+
     html($('#app'), `
         <div class="share-page">
             <h1>Imgable</h1>
@@ -916,7 +1096,10 @@ async function renderShare(code) {
     `);
 
     try {
-        const res = await fetch(`${API_BASE}/s/${code}`);
+        let url = `${API_BASE}/s/${code}`;
+        if (sharePassword) url += `?password=${encodeURIComponent(sharePassword)}`;
+
+        const res = await fetch(url);
         const data = await res.json();
 
         if (res.status === 401) {
@@ -941,24 +1124,82 @@ async function renderShare(code) {
                 <img src="${API_BASE}${data.photo.urls.large}" style="max-width: 90vw; max-height: 80vh;">
             `);
         } else {
-            // Album
-            let photosHtml = '';
-            for (const photo of data.photos) {
-                photosHtml += `
-                    <div class="photo-item ${photo.type === 'video' ? 'video' : ''}">
-                        <img src="${API_BASE}${photo.small}" loading="lazy" alt="">
-                    </div>
-                `;
-            }
+            // Album with infinite scroll
+            sharePhotos = data.photos;
+            shareHasMore = data.has_more;
+            shareNextCursor = data.next_cursor;
+
             html($('#share-content'), `
                 <h2>${data.album.name} (${data.album.photo_count} photos)</h2>
-                <div class="photo-grid" style="max-width: 800px; margin: 20px auto;">
-                    ${photosHtml}
-                </div>
+                <div class="photo-grid" id="share-photo-grid" style="max-width: 800px; margin: 20px auto;"></div>
             `);
+
+            renderSharePhotos(sharePhotos);
+            setupShareInfiniteScroll();
         }
     } catch (err) {
         html($('#share-content'), `Error: ${err.message}`);
+    }
+}
+
+function renderSharePhotos(photos) {
+    const grid = $('#share-photo-grid');
+    if (!grid) return;
+
+    for (const photo of photos) {
+        const div = document.createElement('div');
+        div.className = `photo-item ${photo.type === 'video' ? 'video' : ''}`;
+        div.innerHTML = `<img src="${API_BASE}${photo.small}" loading="lazy" alt="">`;
+        grid.appendChild(div);
+    }
+}
+
+function setupShareInfiniteScroll() {
+    const checkScroll = () => {
+        if (shareIsLoading || !shareHasMore || !shareNextCursor) return;
+
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const documentHeight = document.documentElement.scrollHeight;
+        const threshold = 1500;
+
+        if (documentHeight - (scrollY + windowHeight) < threshold) {
+            loadMoreSharePhotos();
+        }
+    };
+
+    window.removeEventListener('scroll', window._shareScrollHandler);
+    window._shareScrollHandler = () => {
+        requestAnimationFrame(checkScroll);
+    };
+    window.addEventListener('scroll', window._shareScrollHandler, { passive: true });
+
+    // Check immediately in case viewport is tall
+    setTimeout(checkScroll, 100);
+}
+
+async function loadMoreSharePhotos() {
+    if (shareIsLoading || !shareHasMore || !shareNextCursor) return;
+
+    shareIsLoading = true;
+
+    try {
+        let url = `${API_BASE}/s/${shareCode}?cursor=${shareNextCursor}`;
+        if (sharePassword) url += `&password=${encodeURIComponent(sharePassword)}`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (res.ok && data.photos) {
+            sharePhotos = [...sharePhotos, ...data.photos];
+            shareHasMore = data.has_more;
+            shareNextCursor = data.next_cursor;
+            renderSharePhotos(data.photos);
+        }
+    } catch (err) {
+        console.error('Failed to load more photos:', err);
+    } finally {
+        shareIsLoading = false;
     }
 }
 
