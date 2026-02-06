@@ -14,6 +14,10 @@ let currentLoadContext = null; // 'gallery' or 'album:id' or 'place:id'
 let selectMode = false;
 let selectedPhotos = new Set();
 
+// Grouping state
+let groupByMonth = localStorage.getItem('groupByMonth') !== 'false'; // default true
+let lastRenderedMonth = null;
+
 // API Client
 const api = {
     async request(method, path, body = null) {
@@ -236,15 +240,37 @@ async function appendPlacePhotos(placeId) {
     appendPhotosToGrid(data.photos);
 }
 
-function appendPhotosToGrid(newPhotos) {
+function getPhotoMonthKey(photo) {
+    if (!photo.taken_at) return 'no-date';
+    const date = new Date(photo.taken_at * 1000);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getMonthLabel(monthKey) {
+    if (monthKey === 'no-date') return 'No date';
+    const [year, month] = monthKey.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function renderPhotosWithGroups(photos, startIndex) {
     const grid = $('#photo-grid');
-    const startIndex = currentPhotos.length;
 
-    currentPhotos = [...currentPhotos, ...newPhotos];
-
-    for (let i = 0; i < newPhotos.length; i++) {
-        const photo = newPhotos[i];
+    for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
         const index = startIndex + i;
+
+        // Add month header if grouping enabled and month changed
+        if (groupByMonth) {
+            const monthKey = getPhotoMonthKey(photo);
+            if (monthKey !== lastRenderedMonth) {
+                lastRenderedMonth = monthKey;
+                const header = document.createElement('div');
+                header.className = 'month-header';
+                header.textContent = getMonthLabel(monthKey);
+                grid.appendChild(header);
+            }
+        }
 
         const div = document.createElement('div');
         div.className = `photo-item ${photo.type === 'video' ? 'video' : ''}`;
@@ -265,6 +291,12 @@ function appendPhotosToGrid(newPhotos) {
     }
 }
 
+function appendPhotosToGrid(newPhotos) {
+    const startIndex = currentPhotos.length;
+    currentPhotos = [...currentPhotos, ...newPhotos];
+    renderPhotosWithGroups(newPhotos, startIndex);
+}
+
 // Header component
 function renderHeader(active) {
     return `
@@ -276,6 +308,7 @@ function renderHeader(active) {
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
                     <a href="/places" class="${active === 'places' ? 'active' : ''}" data-link>Map</a>
                     <a href="/shares" class="${active === 'shares' ? 'active' : ''}" data-link>Shares</a>
+                    <a href="/stats" class="${active === 'stats' ? 'active' : ''}" data-link>Stats</a>
                     <a href="/sync" class="${active === 'sync' ? 'active' : ''}" data-link>Sync</a>
                     <a href="/upload" class="${active === 'upload' ? 'active' : ''}" data-link>Upload</a>
                 </nav>
@@ -330,6 +363,10 @@ async function renderGallery() {
                     <option value="video">Videos</option>
                     <option value="favorite">Favorites</option>
                 </select>
+                <label class="group-toggle">
+                    <input type="checkbox" id="group-by-month" ${groupByMonth ? 'checked' : ''}>
+                    Group by month
+                </label>
                 <button id="btn-select-mode" onclick="toggleSelectMode()">Select</button>
             </div>
             <div class="selection-bar" id="selection-bar" style="display:none">
@@ -347,6 +384,11 @@ async function renderGallery() {
 
     $('#sort').onchange = () => loadPhotos();
     $('#filter').onchange = () => loadPhotos();
+    $('#group-by-month').onchange = (e) => {
+        groupByMonth = e.target.checked;
+        localStorage.setItem('groupByMonth', groupByMonth);
+        loadPhotos();
+    };
 }
 
 async function loadPhotos() {
@@ -359,6 +401,7 @@ async function loadPhotos() {
 
     const sort = $('#sort')?.value || 'date';
     const filter = $('#filter')?.value || '';
+    lastRenderedMonth = null; // Reset for fresh render
 
     let url = `/api/v1/photos?limit=100&sort=${sort}`;
     if (filter === 'favorite') url += '&favorite=true';
@@ -370,17 +413,9 @@ async function loadPhotos() {
         hasMorePhotos = data.has_more;
         nextCursor = data.next_cursor;
 
-        let gridHtml = '';
-        for (const photo of currentPhotos) {
-            gridHtml += `
-                <div class="photo-item ${photo.type === 'video' ? 'video' : ''}" data-id="${photo.id}" data-index="${currentPhotos.indexOf(photo)}">
-                    <img src="${API_BASE}${photo.small}" loading="lazy" alt="">
-                    ${photo.duration ? `<span class="duration">${formatDuration(photo.duration)}</span>` : ''}
-                </div>
-            `;
-        }
-
-        html($('#photo-grid'), gridHtml);
+        const grid = $('#photo-grid');
+        grid.innerHTML = '';
+        renderPhotosWithGroups(currentPhotos, 0);
 
         $$('.photo-item').forEach(el => {
             el.onclick = () => {
@@ -426,6 +461,7 @@ async function openPhotoModal(index) {
 function renderPhotoModal(photo) {
     const isVideo = photo.type === 'video';
     const mediaUrl = API_BASE + (isVideo ? photo.urls.video : photo.urls.large);
+    const inAlbum = currentAlbumId && currentAlbumId !== 'favorites';
 
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
@@ -446,9 +482,10 @@ function renderPhotoModal(photo) {
         <div class="modal-footer">
             <div class="modal-actions">
                 <button onclick="toggleFavorite('${photo.id}', ${!photo.is_favorite})">${photo.is_favorite ? '♥ Unfavorite' : '♡ Favorite'}</button>
-                <button onclick="showAddToAlbum('${photo.id}')">📁 Add to Album</button>
-                <button onclick="showShareModal('photo', '${photo.id}')">🔗 Share</button>
-                <button onclick="deletePhoto('${photo.id}')">🗑 Delete</button>
+                <button onclick="showAddToAlbum('${photo.id}')">Add to Album</button>
+                ${inAlbum ? `<button onclick="removePhotoFromAlbum('${photo.id}')" class="btn-warning">Remove from Album</button>` : ''}
+                <button onclick="showShareModal('photo', '${photo.id}')">Share</button>
+                <button onclick="deletePhoto('${photo.id}')" class="btn-danger">Delete</button>
             </div>
             <div class="modal-comment">
                 <input type="text" id="comment-input" value="${photo.comment || ''}" placeholder="Add comment...">
@@ -515,6 +552,20 @@ async function deletePhoto(id) {
         closePhotoModal();
         currentPhotos = currentPhotos.filter(p => p.id !== id);
         loadPhotos();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function removePhotoFromAlbum(photoId) {
+    if (!currentAlbumId) return;
+    if (!confirm('Remove this photo from album?')) return;
+
+    try {
+        await api.delete(`/api/v1/albums/${currentAlbumId}/photos/${photoId}`);
+        closePhotoModal();
+        currentPhotos = currentPhotos.filter(p => p.id !== photoId);
+        renderAlbumView(currentAlbumId);
     } catch (err) {
         alert('Error: ' + err.message);
     }
@@ -762,31 +813,61 @@ async function showShareModal(type, id) {
         <div class="share-modal">
             <h3>Share ${type}</h3>
             <div id="share-content">
-                <button onclick="createShare('${type}', '${id}')">Create Share Link</button>
+                <div class="form-group">
+                    <label>Password (optional)</label>
+                    <input type="text" id="share-password" placeholder="Leave empty for no password">
+                </div>
+                <div class="form-group">
+                    <label>Expires in days (optional)</label>
+                    <input type="number" id="share-expires" placeholder="Leave empty for no expiration" min="1">
+                </div>
+                <div id="share-result" style="display:none">
+                    <label>Share link:</label>
+                    <div class="share-url">
+                        <input type="text" id="share-url" readonly>
+                        <button onclick="navigator.clipboard.writeText($('#share-url').value); alert('Copied!')">Copy</button>
+                    </div>
+                </div>
+                <div class="buttons" id="share-buttons">
+                    <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                    <button onclick="createShare('${type}', '${id}')">Create Link</button>
+                </div>
             </div>
-            <button onclick="this.closest('.modal-overlay').remove()">Close</button>
         </div>
     `;
     document.body.appendChild(modal);
 }
 
 async function createShare(type, id) {
+    const password = $('#share-password').value.trim() || null;
+    const expiresDays = $('#share-expires').value ? parseInt($('#share-expires').value) : null;
+
+    const btn = $('#share-buttons button:last-child');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
     try {
         const body = { type };
         if (type === 'photo') body.photo_id = id;
         else body.album_id = id;
+        if (password) body.password = password;
+        if (expiresDays) body.expires_days = expiresDays;
 
         const data = await api.post('/api/v1/shares', body);
         const url = location.origin + data.url;
 
-        html($('#share-content'), `
-            <div class="share-url">
-                <input type="text" value="${url}" readonly id="share-url-input">
-                <button onclick="navigator.clipboard.writeText('${url}'); alert('Copied!')">Copy</button>
-            </div>
-        `);
+        // Hide form, show result
+        $('#share-password').parentElement.style.display = 'none';
+        $('#share-expires').parentElement.style.display = 'none';
+        $('#share-result').style.display = 'block';
+        $('#share-url').value = url;
+        $('#share-buttons').innerHTML = `
+            <button onclick="this.closest('.modal-overlay').remove()">Done</button>
+        `;
     } catch (err) {
         alert('Error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Create Link';
     }
 }
 
@@ -810,8 +891,8 @@ async function renderAlbums() {
             gridHtml += `
                 <div class="album-card" onclick="router.navigate('/albums/${album.id}')">
                     <div class="album-card-cover">
-                        ${album.cover_url
-                            ? `<img src="${API_BASE}${album.cover_url}" alt="">`
+                        ${album.cover
+                            ? `<img src="${API_BASE}${album.cover}" alt="">`
                             : (album.type === 'favorites' ? '⭐' : '📁')}
                     </div>
                     <div class="album-card-info">
@@ -896,10 +977,12 @@ async function renderAlbumView(albumId) {
 
         html($('#album-header'), `
             <h2><a href="/albums" data-link class="back-link">←</a> ${album.name} (${album.photo_count})</h2>
+            ${album.description ? `<p class="album-description">${album.description}</p>` : ''}
             <div class="album-actions">
                 <button id="btn-select-mode" onclick="toggleSelectMode()">Select</button>
-                <button onclick="showShareModal('album', '${album.id}')">🔗 Share</button>
-                ${album.type === 'manual' ? `<button onclick="deleteAlbum('${album.id}')">🗑 Delete</button>` : ''}
+                ${album.type === 'manual' ? `<button onclick="showEditAlbumModal('${album.id}', '${album.name.replace(/'/g, "\\'")}', '${(album.description || '').replace(/'/g, "\\'")}')">Edit</button>` : ''}
+                <button onclick="showShareModal('album', '${album.id}')">Share</button>
+                ${album.type === 'manual' ? `<button onclick="deleteAlbum('${album.id}')" class="btn-danger">Delete</button>` : ''}
             </div>
         `);
 
@@ -952,6 +1035,115 @@ async function deleteAlbum(id) {
     } catch (err) {
         alert('Error: ' + err.message);
     }
+}
+
+function showEditAlbumModal(albumId, currentName, currentDescription) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="edit-album-modal">
+            <h3>Edit Album</h3>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="edit-album-name" value="${currentName}">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="edit-album-description" rows="3" placeholder="Optional description">${currentDescription}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Cover Photo</label>
+                <div class="cover-selection">
+                    <span id="cover-status">Current cover will be kept</span>
+                    <button type="button" onclick="selectAlbumCover('${albumId}')">Choose from album</button>
+                </div>
+                <input type="hidden" id="edit-album-cover" value="">
+            </div>
+            <div class="buttons">
+                <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                <button onclick="saveAlbumChanges('${albumId}')">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    $('#edit-album-name').focus();
+}
+
+async function saveAlbumChanges(albumId) {
+    const name = $('#edit-album-name').value.trim();
+    const description = $('#edit-album-description').value.trim();
+    const coverPhotoId = $('#edit-album-cover').value;
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    try {
+        const body = { name };
+        if (description) body.description = description;
+        else body.description = null;
+        if (coverPhotoId) body.cover_photo_id = coverPhotoId;
+
+        await api.patch(`/api/v1/albums/${albumId}`, body);
+        $('.modal-overlay').remove();
+        renderAlbumView(albumId);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function selectAlbumCover(albumId) {
+    // Close edit modal temporarily
+    const editModal = $('.edit-album-modal');
+    const name = $('#edit-album-name').value;
+    const description = $('#edit-album-description').value;
+
+    $('.modal-overlay').remove();
+
+    // Show cover selection modal
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="cover-select-modal">
+            <h3>Select Cover Photo</h3>
+            <p>Click on a photo to set it as album cover</p>
+            <div class="cover-photo-grid" id="cover-photo-grid">Loading...</div>
+            <div class="buttons">
+                <button onclick="cancelCoverSelection('${albumId}', '${name.replace(/'/g, "\\'")}', '${description.replace(/'/g, "\\'")}')">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Populate with current photos
+    const grid = $('#cover-photo-grid');
+    let gridHtml = '';
+    for (const photo of currentPhotos) {
+        gridHtml += `
+            <div class="cover-photo-item" onclick="setCoverPhoto('${albumId}', '${photo.id}', '${name.replace(/'/g, "\\'")}', '${description.replace(/'/g, "\\'")}')">
+                <img src="${API_BASE}${photo.small}" alt="">
+            </div>
+        `;
+    }
+    grid.innerHTML = gridHtml || 'No photos in album';
+}
+
+function cancelCoverSelection(albumId, name, description) {
+    $('.modal-overlay').remove();
+    showEditAlbumModal(albumId, name, description);
+}
+
+function setCoverPhoto(albumId, photoId, name, description) {
+    $('.modal-overlay').remove();
+    showEditAlbumModal(albumId, name, description);
+
+    // Set the cover photo ID and update status
+    setTimeout(() => {
+        $('#edit-album-cover').value = photoId;
+        $('#cover-status').textContent = 'New cover selected';
+        $('#cover-status').style.color = '#0a0';
+    }, 50);
 }
 
 // Places / Map
@@ -1205,8 +1397,12 @@ async function renderShare(code) {
         }
 
         if (data.type === 'photo') {
+            let photoUrl = `${API_BASE}${data.photo.urls.large}`;
+            if (sharePassword) {
+                photoUrl += (photoUrl.includes('?') ? '&' : '?') + `password=${encodeURIComponent(sharePassword)}`;
+            }
             html($('#share-content'), `
-                <img src="${API_BASE}${data.photo.urls.large}" style="max-width: 90vw; max-height: 80vh;">
+                <img src="${photoUrl}" style="max-width: 90vw; max-height: 80vh;">
             `);
         } else {
             // Album with infinite scroll
@@ -1878,6 +2074,73 @@ async function deleteShare(id) {
     }
 }
 
+// Stats Page
+async function renderStats() {
+    html($('#app'), renderHeader('stats') + `
+        <div class="container">
+            <h2>Statistics</h2>
+            <div class="stats-content" id="stats-content">Loading...</div>
+        </div>
+    `);
+
+    try {
+        const data = await api.get('/api/v1/stats');
+
+        const oldestDate = data.dates.oldest ? formatDate(data.dates.oldest) : 'N/A';
+        const newestDate = data.dates.newest ? formatDate(data.dates.newest) : 'N/A';
+
+        html($('#stats-content'), `
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📷</div>
+                    <div class="stat-value">${data.total_photos.toLocaleString()}</div>
+                    <div class="stat-label">Photos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🎬</div>
+                    <div class="stat-value">${data.total_videos.toLocaleString()}</div>
+                    <div class="stat-label">Videos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📁</div>
+                    <div class="stat-value">${data.total_albums.toLocaleString()}</div>
+                    <div class="stat-label">Albums</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📍</div>
+                    <div class="stat-value">${data.total_places.toLocaleString()}</div>
+                    <div class="stat-label">Places</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-value">${data.total_favorites.toLocaleString()}</div>
+                    <div class="stat-label">Favorites</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💾</div>
+                    <div class="stat-value">${data.storage.human}</div>
+                    <div class="stat-label">Storage Used</div>
+                </div>
+            </div>
+            <div class="stats-dates">
+                <h3>Photo Timeline</h3>
+                <div class="dates-range">
+                    <div class="date-item">
+                        <span class="date-label">Oldest photo:</span>
+                        <span class="date-value">${oldestDate}</span>
+                    </div>
+                    <div class="date-item">
+                        <span class="date-label">Newest photo:</span>
+                        <span class="date-value">${newestDate}</span>
+                    </div>
+                </div>
+            </div>
+        `);
+    } catch (err) {
+        html($('#stats-content'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
 // Setup routes
 router.add('/login', renderLogin);
 router.add('/', renderGallery);
@@ -1886,6 +2149,7 @@ router.add('/albums/:id', renderAlbumView);
 router.add('/places', renderPlaces);
 router.add('/places/:id', renderPlaceView);
 router.add('/shares', renderShares);
+router.add('/stats', renderStats);
 router.add('/sync', renderSync);
 router.add('/upload', renderUpload);
 router.add('/s/:code', renderShare);

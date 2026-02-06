@@ -29,6 +29,8 @@ input { padding: 8px; border: 1px solid #ccc; }
 /* Gallery */
 .gallery-controls { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
 .gallery-controls select, .gallery-controls input { padding: 6px; }
+.group-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; color: #555; }
+.group-toggle input { cursor: pointer; }
 .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
 .photo-item { aspect-ratio: 1; overflow: hidden; cursor: pointer; position: relative; background: #ddd; }
 .photo-item img { width: 100%; height: 100%; object-fit: cover; }
@@ -48,6 +50,8 @@ input { padding: 8px; border: 1px solid #ccc; }
 .modal-footer { padding: 15px 20px; background: #222; color: #fff; }
 .modal-actions { display: flex; gap: 10px; margin-bottom: 15px; }
 .modal-actions button { background: #444; color: #fff; border: none; padding: 8px 15px; border-radius: 4px; }
+.modal-actions button.btn-warning { background: #f57c00; }
+.modal-actions button.btn-danger { background: #c62828; }
 .modal-comment { display: flex; gap: 10px; margin-bottom: 15px; }
 .modal-comment input { flex: 1; }
 .modal-meta { font-size: 13px; color: #aaa; }
@@ -103,13 +107,44 @@ input { padding: 8px; border: 1px solid #ccc; }
 .create-album-modal input { width: 100%; margin-bottom: 10px; }
 .create-album-modal .buttons { display: flex; gap: 10px; justify-content: flex-end; }
 
+/* Edit album modal */
+.edit-album-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 24px; border-radius: 8px; z-index: 1001; min-width: 380px; max-width: 90vw; }
+.edit-album-modal h3 { margin-bottom: 20px; }
+.edit-album-modal .form-group { margin-bottom: 16px; }
+.edit-album-modal .form-group label { display: block; margin-bottom: 6px; font-weight: 500; color: #333; }
+.edit-album-modal .form-group input, .edit-album-modal .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; font-family: inherit; }
+.edit-album-modal .cover-selection { display: flex; align-items: center; gap: 12px; }
+.edit-album-modal .cover-selection span { color: #666; font-size: 13px; }
+.edit-album-modal .cover-selection button { padding: 6px 12px; font-size: 13px; }
+.edit-album-modal .buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+/* Cover selection modal */
+.cover-select-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 24px; border-radius: 8px; z-index: 1001; width: 600px; max-width: 90vw; max-height: 80vh; overflow-y: auto; }
+.cover-select-modal h3 { margin-bottom: 8px; }
+.cover-select-modal p { color: #666; margin-bottom: 16px; font-size: 14px; }
+.cover-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.cover-photo-item { aspect-ratio: 1; overflow: hidden; cursor: pointer; border-radius: 4px; border: 2px solid transparent; transition: border-color 0.2s; }
+.cover-photo-item:hover { border-color: #0066cc; }
+.cover-photo-item img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Album description */
+.album-description { color: #666; margin: 8px 0 16px; font-size: 14px; }
+.album-actions .btn-danger { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+.album-actions .btn-danger:hover { background: #ffcdd2; }
+
 /* Share modal */
-.share-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 4px; z-index: 1001; min-width: 350px; }
-.share-modal h3 { margin-bottom: 15px; }
-.share-modal .share-url { display: flex; gap: 10px; margin-bottom: 15px; }
-.share-modal .share-url input { flex: 1; }
-.share-modal .share-options { margin-bottom: 15px; }
-.share-modal .share-options label { display: block; margin-bottom: 5px; }
+.share-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 24px; border-radius: 8px; z-index: 1001; min-width: 380px; }
+.share-modal h3 { margin-bottom: 20px; }
+.share-modal .form-group { margin-bottom: 16px; }
+.share-modal .form-group label { display: block; margin-bottom: 6px; font-weight: 500; color: #333; }
+.share-modal .form-group input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+.share-modal .share-url { display: flex; gap: 10px; margin-top: 10px; }
+.share-modal .share-url input { flex: 1; background: #f5f5f5; }
+.share-modal .buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.share-modal .buttons button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+.share-modal .buttons button:first-child { background: #eee; }
+.share-modal .buttons button:last-child { background: #0066cc; color: #fff; }
+.share-modal .buttons button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Bulk share modal */
 .bulk-share-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border-radius: 4px; z-index: 1001; min-width: 380px; }
@@ -144,6 +179,20 @@ input { padding: 8px; border: 1px solid #ccc; }
 .share-card-actions .btn-open { padding: 6px 12px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 4px; font-size: 13px; }
 .share-card-actions .btn-delete { padding: 6px 12px; background: #ffebee; color: #c62828; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .share-card-actions .btn-delete:hover { background: #ffcdd2; }
+
+/* Stats Page */
+.stats-content { margin-top: 20px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; margin-bottom: 30px; }
+.stat-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 24px; text-align: center; }
+.stat-icon { font-size: 36px; margin-bottom: 12px; }
+.stat-value { font-size: 32px; font-weight: 700; color: #333; margin-bottom: 4px; }
+.stat-label { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+.stats-dates { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 24px; }
+.stats-dates h3 { margin-bottom: 16px; font-size: 18px; color: #333; }
+.dates-range { display: flex; gap: 40px; flex-wrap: wrap; }
+.date-item { display: flex; flex-direction: column; gap: 4px; }
+.date-label { font-size: 13px; color: #666; }
+.date-value { font-size: 16px; font-weight: 500; color: #333; }
 
 /* Upload Page */
 .upload-area {
