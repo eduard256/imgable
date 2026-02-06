@@ -161,27 +161,6 @@ func (h *PlacesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, resp)
 }
 
-// MapResponse represents map data response.
-type MapResponse struct {
-	Markers []storage.MapMarker `json:"markers"`
-	Bounds  *storage.MapBounds  `json:"bounds,omitempty"`
-}
-
-// GetMap handles GET /api/v1/map.
-func (h *PlacesHandler) GetMap(w http.ResponseWriter, r *http.Request) {
-	markers, bounds, err := h.storage.GetMapData(r.Context())
-	if err != nil {
-		h.logger.Error("failed to get map data", slog.Any("error", err))
-		response.InternalError(w)
-		return
-	}
-
-	response.OK(w, MapResponse{
-		Markers: markers,
-		Bounds:  bounds,
-	})
-}
-
 // photoURL generates a URL for a photo preview.
 func (h *PlacesHandler) photoURL(id, size, token string) string {
 	return fmt.Sprintf("/photos/%s/%s/%s_%s.webp?token=%s",

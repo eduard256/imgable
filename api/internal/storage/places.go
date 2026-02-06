@@ -24,23 +24,6 @@ type Place struct {
 	UpdatedAt  time.Time `json:"updated_at,omitempty"`
 }
 
-// MapMarker represents a place marker for the map view.
-type MapMarker struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	Lat   float64 `json:"lat"`
-	Lon   float64 `json:"lon"`
-	Count int     `json:"count"`
-}
-
-// MapBounds represents the geographic bounds of all markers.
-type MapBounds struct {
-	MinLat float64 `json:"min_lat"`
-	MaxLat float64 `json:"max_lat"`
-	MinLon float64 `json:"min_lon"`
-	MaxLon float64 `json:"max_lon"`
-}
-
 // ListPlaces returns all places with at least one photo.
 func (s *Storage) ListPlaces(ctx context.Context) ([]Place, error) {
 	query := `
@@ -194,56 +177,4 @@ func (s *Storage) GetPlacePhotos(ctx context.Context, placeID string, limit int,
 	}
 
 	return photos, nextCursor, nil
-}
-
-// GetMapData returns all places as map markers with bounds.
-func (s *Storage) GetMapData(ctx context.Context) ([]MapMarker, *MapBounds, error) {
-	query := `
-		SELECT id, name, gps_lat, gps_lon, photo_count
-		FROM places
-		WHERE photo_count > 0
-	`
-
-	rows, err := s.db.Query(ctx, query)
-	if err != nil {
-		return nil, nil, fmt.Errorf("query map data: %w", err)
-	}
-	defer rows.Close()
-
-	var markers []MapMarker
-	var bounds *MapBounds
-
-	for rows.Next() {
-		var m MapMarker
-		if err := rows.Scan(&m.ID, &m.Name, &m.Lat, &m.Lon, &m.Count); err != nil {
-			return nil, nil, fmt.Errorf("scan marker: %w", err)
-		}
-
-		markers = append(markers, m)
-
-		// Update bounds
-		if bounds == nil {
-			bounds = &MapBounds{
-				MinLat: m.Lat,
-				MaxLat: m.Lat,
-				MinLon: m.Lon,
-				MaxLon: m.Lon,
-			}
-		} else {
-			if m.Lat < bounds.MinLat {
-				bounds.MinLat = m.Lat
-			}
-			if m.Lat > bounds.MaxLat {
-				bounds.MaxLat = m.Lat
-			}
-			if m.Lon < bounds.MinLon {
-				bounds.MinLon = m.Lon
-			}
-			if m.Lon > bounds.MaxLon {
-				bounds.MaxLon = m.Lon
-			}
-		}
-	}
-
-	return markers, bounds, nil
 }

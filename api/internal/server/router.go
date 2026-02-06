@@ -83,7 +83,6 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// Places
 			r.Get("/places", placesHandler.List)
 			r.Get("/places/{id}", placesHandler.Get)
-			r.Get("/map", placesHandler.GetMap)
 
 			// Shares
 			r.Get("/shares", sharesHandler.List)
