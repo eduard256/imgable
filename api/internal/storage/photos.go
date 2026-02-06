@@ -197,19 +197,24 @@ func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]Pho
 	if params.Cursor != nil {
 		var cursorCond string
 		if params.Cursor.TakenAt != nil {
+			// Cursor has a date: get photos with earlier date, OR same date with smaller id,
+			// OR photos without date (NULL) which come after all dated photos
 			if sortOrder == "DESC" {
-				cursorCond = fmt.Sprintf("(%s < $%d OR (%s = $%d AND id < $%d))", sortCol, argNum, sortCol, argNum, argNum+1)
+				cursorCond = fmt.Sprintf("((%s IS NOT NULL AND (%s < $%d OR (%s = $%d AND id < $%d))) OR %s IS NULL)",
+					sortCol, sortCol, argNum, sortCol, argNum, argNum+1, sortCol)
 			} else {
-				cursorCond = fmt.Sprintf("(%s > $%d OR (%s = $%d AND id > $%d))", sortCol, argNum, sortCol, argNum, argNum+1)
+				cursorCond = fmt.Sprintf("((%s IS NOT NULL AND (%s > $%d OR (%s = $%d AND id > $%d))) OR %s IS NULL)",
+					sortCol, sortCol, argNum, sortCol, argNum, argNum+1, sortCol)
 			}
 			args = append(args, *params.Cursor.TakenAt, params.Cursor.ID)
 			argNum += 2
 		} else {
-			// For photos without taken_at, use id only
+			// Cursor has no date (NULL): we're in the NULL section, compare by id only
+			// All photos with dates have already been shown
 			if sortOrder == "DESC" {
-				cursorCond = fmt.Sprintf("id < $%d", argNum)
+				cursorCond = fmt.Sprintf("(%s IS NULL AND id < $%d)", sortCol, argNum)
 			} else {
-				cursorCond = fmt.Sprintf("id > $%d", argNum)
+				cursorCond = fmt.Sprintf("(%s IS NULL AND id > $%d)", sortCol, argNum)
 			}
 			args = append(args, params.Cursor.ID)
 			argNum++
