@@ -353,6 +353,34 @@ func (s *Storage) RemovePhotoFromAlbum(ctx context.Context, albumID, photoID str
 	return err
 }
 
+// RemovePhotosFromAlbum removes multiple photos from an album.
+// Returns the number of photos actually removed.
+func (s *Storage) RemovePhotosFromAlbum(ctx context.Context, albumID string, photoIDs []string) (int, error) {
+	if len(photoIDs) == 0 {
+		return 0, nil
+	}
+
+	// Build query with multiple IDs
+	args := []interface{}{albumID}
+	placeholders := ""
+	for i, id := range photoIDs {
+		if i > 0 {
+			placeholders += ", "
+		}
+		placeholders += fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+
+	result, err := s.db.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM album_photos WHERE album_id = $1 AND photo_id IN (%s)
+	`, placeholders), args...)
+	if err != nil {
+		return 0, fmt.Errorf("remove photos from album: %w", err)
+	}
+
+	return int(result.RowsAffected()), nil
+}
+
 // GetPhotoAlbums returns all albums that contain a specific photo.
 func (s *Storage) GetPhotoAlbums(ctx context.Context, photoID string) ([]Album, error) {
 	query := `

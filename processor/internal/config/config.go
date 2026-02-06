@@ -80,7 +80,7 @@ func Load() *Config {
 		NominatimEnabled:     getBoolEnv("NOMINATIM_ENABLED", true),
 		NominatimURL:         getEnv("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
 		NominatimRateLimitMs: getIntEnv("NOMINATIM_RATE_LIMIT_MS", 1100),
-		PlaceRadiusM:         getIntEnv("PLACE_RADIUS_M", 500),
+		PlaceRadiusM:         getIntEnv("PLACE_RADIUS_M", 25000),
 
 		// API
 		APIPort: getEnv("API_PORT", "8002"),

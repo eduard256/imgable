@@ -320,6 +320,46 @@ func (h *AlbumsHandler) RemovePhoto(w http.ResponseWriter, r *http.Request) {
 	response.OKStatus(w)
 }
 
+// RemovePhotosRequest represents request to remove photos from album.
+type RemovePhotosRequest struct {
+	PhotoIDs []string `json:"photo_ids"`
+}
+
+// RemovePhotosResponse represents response after removing photos.
+type RemovePhotosResponse struct {
+	Removed int `json:"removed"`
+}
+
+// RemovePhotos handles DELETE /api/v1/albums/:id/photos with body {photo_ids: [...]}.
+func (h *AlbumsHandler) RemovePhotos(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "id")
+
+	var req RemovePhotosRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if len(req.PhotoIDs) == 0 {
+		response.BadRequest(w, "photo_ids is required")
+		return
+	}
+
+	if len(req.PhotoIDs) > 100 {
+		response.BadRequest(w, "maximum 100 photos per request")
+		return
+	}
+
+	removed, err := h.storage.RemovePhotosFromAlbum(r.Context(), albumID, req.PhotoIDs)
+	if err != nil {
+		h.logger.Error("failed to remove photos from album", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OK(w, RemovePhotosResponse{Removed: removed})
+}
+
 // photoURL generates a URL for a photo preview.
 func (h *AlbumsHandler) photoURL(id, size, token string) string {
 	return fmt.Sprintf("/photos/%s/%s/%s_%s.webp?token=%s",

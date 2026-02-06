@@ -77,6 +77,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 			r.Patch("/albums/{id}", albumsHandler.Update)
 			r.Delete("/albums/{id}", albumsHandler.Delete)
 			r.Post("/albums/{id}/photos", albumsHandler.AddPhotos)
+			r.Delete("/albums/{id}/photos", albumsHandler.RemovePhotos)
 			r.Delete("/albums/{id}/photos/{photoId}", albumsHandler.RemovePhoto)
 
 			// Places
