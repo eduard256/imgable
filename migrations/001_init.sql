@@ -1,7 +1,8 @@
 -- ============================================
 -- IMGABLE DATABASE SCHEMA
--- Version: 1.0.0
+-- Version: 2.0.0
 -- Description: Complete database schema for Imgable family photo gallery
+--              with AI-powered face recognition, object detection, and OCR
 -- ============================================
 
 -- ============================================
@@ -43,6 +44,37 @@ CREATE TABLE places (
 );
 
 -- ============================================
+-- AI TAGS
+-- People, objects, and scenes detected by AI
+-- ============================================
+CREATE TABLE ai_tags (
+    id TEXT PRIMARY KEY,                          -- 'person_abc123', 'tag_beach', 'people_abc_def'
+
+    -- Tag type
+    type TEXT NOT NULL,                           -- 'person' / 'people' / 'object' / 'scene'
+
+    -- Name
+    name TEXT NOT NULL,                           -- 'Unknown 1' → 'Марина' / 'Море' / 'Марина + Вадим'
+    name_source TEXT NOT NULL DEFAULT 'auto',     -- 'auto' / 'manual'
+
+    -- For 'people' type: array of person IDs that make up this group
+    person_ids TEXT[],                            -- ['person_abc', 'person_def']
+
+    -- For 'person' type: reference face embedding for matching
+    embedding REAL[],                             -- 512 float values from ArcFace
+
+    -- Statistics (denormalized for performance)
+    photo_count INT NOT NULL DEFAULT 0,           -- number of photos with this tag
+
+    -- Timestamps
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- Constraints
+    CONSTRAINT valid_ai_tag_type CHECK (type IN ('person', 'people', 'object', 'scene'))
+);
+
+-- ============================================
 -- PHOTOS AND VIDEOS
 -- Main table storing all media files
 -- ============================================
@@ -57,7 +89,7 @@ CREATE TABLE photos (
     original_filename TEXT,                       -- 'IMG_1234.jpg', original filename
 
     -- Timestamps
-    taken_at TIMESTAMP,                           -- when shot (from EXIF), may be NULL if no metadata
+    taken_at TIMESTAMP,                           -- when shot (from EXIF or OCR), may be NULL if no metadata
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),  -- when added to system
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),  -- when last modified (comment, album)
 
@@ -103,6 +135,19 @@ CREATE TABLE photos (
     comment TEXT,                                 -- user comment on photo
     is_favorite BOOLEAN NOT NULL DEFAULT FALSE,   -- in favorites or not
 
+    -- AI processing results
+    ai_processed_at TIMESTAMP,                    -- when AI processing completed, NULL = not processed
+    ai_person_ids TEXT[],                         -- ['person_abc', 'person_def'] - people detected in photo
+    ai_faces_count INT GENERATED ALWAYS AS (coalesce(array_length(ai_person_ids, 1), 0)) STORED,  -- number of faces (computed)
+
+    -- AI OCR results
+    ai_ocr_text TEXT,                             -- recognized text from photo
+    ai_ocr_date DATE,                             -- date extracted from text (for old photos with printed date)
+
+    -- AI additional data
+    ai_colors TEXT[],                             -- dominant colors: ['#1e90ff', '#ffd700']
+    ai_quality_score REAL,                        -- photo quality score 0.0-1.0 (sharpness, exposure, composition)
+
     -- Constraints
     CONSTRAINT valid_type CHECK (type IN ('photo', 'video')),
     CONSTRAINT valid_status CHECK (status IN ('processing', 'ready', 'error'))
@@ -116,10 +161,10 @@ CREATE TABLE albums (
     id TEXT PRIMARY KEY,                          -- UUID, 'favorites' is hardcoded
 
     -- Album type
-    type TEXT NOT NULL DEFAULT 'manual',          -- 'manual' (user created) / 'favorites' (system) / 'place' (auto by location)
+    type TEXT NOT NULL DEFAULT 'manual',          -- 'manual' / 'favorites' / 'place' / 'person' / 'people' / 'tag'
 
     -- Data
-    name TEXT NOT NULL,                           -- 'Vacation 2023' / 'Favorites' / 'Moscow'
+    name TEXT NOT NULL,                           -- 'Vacation 2023' / 'Favorites' / 'Moscow' / 'Марина'
     description TEXT,                             -- album description
 
     -- Cover
@@ -127,6 +172,9 @@ CREATE TABLE albums (
 
     -- Link to place (for type='place')
     place_id TEXT REFERENCES places(id) ON DELETE CASCADE,  -- if this is auto-album by place
+
+    -- Link to AI tag (for type='person', 'people', 'tag')
+    ai_tag_id TEXT REFERENCES ai_tags(id) ON DELETE CASCADE,  -- if this is AI-generated album
 
     -- Statistics (denormalized)
     photo_count INT NOT NULL DEFAULT 0,           -- photo count
@@ -136,7 +184,7 @@ CREATE TABLE albums (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Constraints
-    CONSTRAINT valid_album_type CHECK (type IN ('manual', 'favorites', 'place'))
+    CONSTRAINT valid_album_type CHECK (type IN ('manual', 'favorites', 'place', 'person', 'people', 'tag'))
 );
 
 -- ============================================
@@ -151,6 +199,54 @@ CREATE TABLE album_photos (
     sort_order INT,                               -- order in album (NULL = by date)
 
     PRIMARY KEY (album_id, photo_id)
+);
+
+-- ============================================
+-- PHOTO <-> AI TAG RELATIONSHIP
+-- Stores detected faces/objects with coordinates
+-- ============================================
+CREATE TABLE photo_ai_tags (
+    id TEXT PRIMARY KEY,                          -- unique ID for this detection
+
+    photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES ai_tags(id) ON DELETE CASCADE,
+
+    -- Bounding box coordinates (relative 0.0-1.0, for faces)
+    box_x REAL,                                   -- x position (left edge)
+    box_y REAL,                                   -- y position (top edge)
+    box_w REAL,                                   -- width
+    box_h REAL,                                   -- height
+
+    -- Face embedding for this specific detection (for matching)
+    embedding REAL[],                             -- 512 float values
+
+    -- Detection confidence
+    confidence REAL,                              -- 0.0-1.0
+
+    -- Timestamp
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================
+-- AI PROCESSING QUEUE
+-- Tracks photos pending AI processing
+-- ============================================
+CREATE TABLE ai_queue (
+    photo_id TEXT PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+
+    -- Status
+    status TEXT NOT NULL DEFAULT 'pending',       -- 'pending' / 'processing' / 'done' / 'error'
+    priority INT NOT NULL DEFAULT 0,              -- higher = process first
+    attempts INT NOT NULL DEFAULT 0,              -- number of processing attempts
+    last_error TEXT,                              -- last error message if failed
+
+    -- Timestamps
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),  -- when added to queue
+    started_at TIMESTAMP,                         -- when processing started
+    completed_at TIMESTAMP,                       -- when processing completed
+
+    -- Constraints
+    CONSTRAINT valid_ai_queue_status CHECK (status IN ('pending', 'processing', 'done', 'error'))
 );
 
 -- ============================================
@@ -245,13 +341,35 @@ CREATE INDEX idx_photos_year_month ON photos(                                   
     EXTRACT(MONTH FROM taken_at)
 ) WHERE taken_at IS NOT NULL;
 
+-- Photos: AI indexes
+CREATE INDEX idx_photos_ai_processed ON photos(ai_processed_at) WHERE ai_processed_at IS NOT NULL;
+CREATE INDEX idx_photos_ai_persons ON photos USING GIN (ai_person_ids) WHERE ai_person_ids IS NOT NULL;
+CREATE INDEX idx_photos_ai_faces_count ON photos(ai_faces_count) WHERE ai_faces_count > 0;
+CREATE INDEX idx_photos_ai_ocr_date ON photos(ai_ocr_date) WHERE ai_ocr_date IS NOT NULL;
+CREATE INDEX idx_photos_ai_colors ON photos USING GIN (ai_colors) WHERE ai_colors IS NOT NULL;
+CREATE INDEX idx_photos_ai_quality ON photos(ai_quality_score DESC) WHERE ai_quality_score IS NOT NULL;
+
 -- Places
 CREATE INDEX idx_places_gps ON places(gps_lat, gps_lon);                         -- find nearest place
 CREATE INDEX idx_places_country_city ON places(country, city);                   -- filter by country/city
 
+-- AI Tags
+CREATE INDEX idx_ai_tags_type ON ai_tags(type);                                  -- filter by type
+CREATE INDEX idx_ai_tags_name ON ai_tags(name);                                  -- search by name
+CREATE INDEX idx_ai_tags_person_ids ON ai_tags USING GIN (person_ids) WHERE person_ids IS NOT NULL;  -- find people groups
+
+-- Photo AI Tags
+CREATE INDEX idx_photo_ai_tags_photo ON photo_ai_tags(photo_id);                 -- tags for photo
+CREATE INDEX idx_photo_ai_tags_tag ON photo_ai_tags(tag_id);                     -- photos with tag
+
+-- AI Queue
+CREATE INDEX idx_ai_queue_status ON ai_queue(status, priority DESC, created_at); -- get next to process
+CREATE INDEX idx_ai_queue_pending ON ai_queue(created_at) WHERE status = 'pending';  -- pending count
+
 -- Albums
 CREATE INDEX idx_albums_type ON albums(type);                                    -- filter by type
 CREATE INDEX idx_albums_place ON albums(place_id) WHERE place_id IS NOT NULL;    -- place albums
+CREATE INDEX idx_albums_ai_tag ON albums(ai_tag_id) WHERE ai_tag_id IS NOT NULL; -- AI albums
 CREATE INDEX idx_albums_updated ON albums(updated_at DESC);                      -- sorting
 
 -- Album-photo links
@@ -319,6 +437,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to update ai_tag photo_count
+CREATE OR REPLACE FUNCTION update_ai_tag_photo_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- Increment only if this is the first occurrence of this tag on this photo
+        IF NOT EXISTS (
+            SELECT 1 FROM photo_ai_tags
+            WHERE photo_id = NEW.photo_id AND tag_id = NEW.tag_id AND id != NEW.id
+        ) THEN
+            UPDATE ai_tags SET photo_count = photo_count + 1, updated_at = NOW() WHERE id = NEW.tag_id;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Decrement only if this was the last occurrence of this tag on this photo
+        IF NOT EXISTS (
+            SELECT 1 FROM photo_ai_tags
+            WHERE photo_id = OLD.photo_id AND tag_id = OLD.tag_id AND id != OLD.id
+        ) THEN
+            UPDATE ai_tags SET photo_count = photo_count - 1, updated_at = NOW() WHERE id = OLD.tag_id;
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Function to handle favorites album sync
 CREATE OR REPLACE FUNCTION sync_favorites_album()
 RETURNS TRIGGER AS $$
@@ -369,6 +512,45 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to handle AI tag album sync
+-- When photo_ai_tags changes, automatically add/remove from AI albums
+CREATE OR REPLACE FUNCTION sync_ai_tag_album()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- Add photo to album for this AI tag
+        INSERT INTO album_photos (album_id, photo_id, added_at)
+        SELECT id, NEW.photo_id, NOW() FROM albums WHERE ai_tag_id = NEW.tag_id
+        ON CONFLICT (album_id, photo_id) DO NOTHING;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Remove photo from album only if no other detections of this tag remain
+        IF NOT EXISTS (
+            SELECT 1 FROM photo_ai_tags
+            WHERE photo_id = OLD.photo_id AND tag_id = OLD.tag_id AND id != OLD.id
+        ) THEN
+            DELETE FROM album_photos
+            WHERE photo_id = OLD.photo_id
+            AND album_id IN (SELECT id FROM albums WHERE ai_tag_id = OLD.tag_id);
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to add photo to AI queue when ready
+CREATE OR REPLACE FUNCTION add_to_ai_queue()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Add to AI queue when photo becomes ready
+    IF NEW.status = 'ready' AND (OLD IS NULL OR OLD.status != 'ready') THEN
+        INSERT INTO ai_queue (photo_id, status, priority, created_at)
+        VALUES (NEW.id, 'pending', 0, NOW())
+        ON CONFLICT (photo_id) DO NOTHING;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ============================================
 -- TRIGGERS
 -- ============================================
@@ -391,6 +573,12 @@ CREATE TRIGGER albums_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Auto-update updated_at for ai_tags
+CREATE TRIGGER ai_tags_updated_at
+    BEFORE UPDATE ON ai_tags
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Auto-update album photo_count
 CREATE TRIGGER album_photos_count_trigger
     AFTER INSERT OR DELETE ON album_photos
@@ -403,6 +591,12 @@ CREATE TRIGGER photos_place_count_trigger
     FOR EACH ROW
     EXECUTE FUNCTION update_place_photo_count();
 
+-- Auto-update ai_tag photo_count
+CREATE TRIGGER photo_ai_tags_count_trigger
+    AFTER INSERT OR DELETE ON photo_ai_tags
+    FOR EACH ROW
+    EXECUTE FUNCTION update_ai_tag_photo_count();
+
 -- Auto-sync favorites album
 CREATE TRIGGER photos_favorites_sync
     AFTER INSERT OR UPDATE OF is_favorite ON photos
@@ -414,6 +608,18 @@ CREATE TRIGGER photos_place_album_sync
     AFTER INSERT OR UPDATE OF place_id ON photos
     FOR EACH ROW
     EXECUTE FUNCTION sync_place_album();
+
+-- Auto-sync AI tag album
+CREATE TRIGGER photo_ai_tags_album_sync
+    AFTER INSERT OR DELETE ON photo_ai_tags
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_ai_tag_album();
+
+-- Auto-add to AI queue when photo is ready
+CREATE TRIGGER photos_add_to_ai_queue
+    AFTER INSERT OR UPDATE OF status ON photos
+    FOR EACH ROW
+    EXECUTE FUNCTION add_to_ai_queue();
 
 -- ============================================
 -- INITIAL DATA
@@ -433,7 +639,15 @@ INSERT INTO settings (key, value, updated_at) VALUES
     ('processing_max_retries', '3', NOW()),                                 -- max retry attempts
     ('preview_quality', '85', NOW()),                                       -- WebP quality
     ('preview_small_px', '800', NOW()),                                     -- small preview target
-    ('preview_large_px', '2500', NOW());                                    -- large preview target
+    ('preview_large_px', '2500', NOW()),                                    -- large preview target
+    ('ai_enabled', 'true', NOW()),                                          -- enable AI processing
+    ('ai_faces_enabled', 'true', NOW()),                                    -- enable face detection
+    ('ai_tags_enabled', 'true', NOW()),                                     -- enable object/scene tagging
+    ('ai_ocr_enabled', 'true', NOW()),                                      -- enable OCR
+    ('ai_ocr_mode', 'auto', NOW()),                                         -- OCR mode: 'auto' (bottom only) / 'full' / 'off'
+    ('ai_cluster_threshold', '0.6', NOW()),                                 -- face clustering threshold
+    ('ai_min_face_confidence', '0.5', NOW()),                               -- minimum face detection confidence
+    ('ai_min_tag_confidence', '0.15', NOW());                               -- minimum tag confidence
 
 -- ============================================
 -- COMMENTS ON TABLES AND COLUMNS
@@ -441,8 +655,11 @@ INSERT INTO settings (key, value, updated_at) VALUES
 
 COMMENT ON TABLE photos IS 'Main table storing all photo and video metadata. Files are stored on disk in /media/{id[0:2]}/{id[2:4]}/{id}_{size}.webp';
 COMMENT ON TABLE places IS 'Geographic locations for grouping photos. Created automatically during GPS processing or manually by user';
-COMMENT ON TABLE albums IS 'User-created photo collections. Includes system album "favorites" and auto-generated place albums';
+COMMENT ON TABLE ai_tags IS 'AI-detected tags: people (faces), people groups, objects, and scenes. Used to auto-generate albums';
+COMMENT ON TABLE albums IS 'Photo collections. Includes system album "favorites", auto-generated place albums, and AI-generated person/tag albums';
 COMMENT ON TABLE album_photos IS 'Many-to-many relationship between albums and photos with ordering support';
+COMMENT ON TABLE photo_ai_tags IS 'Links photos to AI tags with bounding box coordinates for faces and confidence scores';
+COMMENT ON TABLE ai_queue IS 'Queue for AI processing. Photos are added when ready and processed in priority order';
 COMMENT ON TABLE shares IS 'Public sharing links for photos and albums with optional password protection and expiration';
 COMMENT ON TABLE events IS 'Event log for real-time updates via SSE. Clients poll this table for changes';
 COMMENT ON TABLE settings IS 'System configuration key-value store';
@@ -451,8 +668,22 @@ COMMENT ON TABLE processing_state IS 'Tracks file processing state for crash rec
 COMMENT ON COLUMN photos.id IS 'SHA256 hash first 12 characters. Used to construct file path: /media/{id[0:2]}/{id[2:4]}/{id}_{size}.webp';
 COMMENT ON COLUMN photos.blurhash IS 'BlurHash string for instant low-quality placeholder while full image loads';
 COMMENT ON COLUMN photos.status IS 'Processing status: processing (being processed), ready (available for viewing), error (processing failed)';
+COMMENT ON COLUMN photos.ai_processed_at IS 'Timestamp when AI processing completed. NULL means not yet processed by AI';
+COMMENT ON COLUMN photos.ai_person_ids IS 'Array of person IDs detected in this photo. Used for fast filtering and search';
+COMMENT ON COLUMN photos.ai_faces_count IS 'Computed column: number of faces detected (length of ai_person_ids array)';
+COMMENT ON COLUMN photos.ai_ocr_text IS 'Text recognized by OCR from the photo';
+COMMENT ON COLUMN photos.ai_ocr_date IS 'Date extracted from OCR text, typically from old photos with printed timestamps';
 
 COMMENT ON COLUMN places.name_source IS 'How the name was determined: auto (from Nominatim reverse geocoding) or manual (user renamed)';
 COMMENT ON COLUMN places.radius_m IS 'Radius in meters for clustering nearby photos into this place';
+
+COMMENT ON COLUMN ai_tags.type IS 'Tag type: person (individual), people (group combo), object (car, dog), scene (beach, mountain)';
+COMMENT ON COLUMN ai_tags.person_ids IS 'For people type only: array of person IDs that make up this group';
+COMMENT ON COLUMN ai_tags.embedding IS 'For person type only: 512-dimensional face embedding for matching new faces';
+
+COMMENT ON COLUMN photo_ai_tags.box_x IS 'Relative X coordinate (0.0-1.0) of bounding box left edge';
+COMMENT ON COLUMN photo_ai_tags.box_y IS 'Relative Y coordinate (0.0-1.0) of bounding box top edge';
+COMMENT ON COLUMN photo_ai_tags.box_w IS 'Relative width (0.0-1.0) of bounding box';
+COMMENT ON COLUMN photo_ai_tags.box_h IS 'Relative height (0.0-1.0) of bounding box';
 
 COMMENT ON COLUMN processing_state.worker_id IS 'Identifier of the worker processing this file, for debugging concurrent processing issues';

@@ -866,15 +866,21 @@ async function renderAlbums() {
                 <button onclick="showCreateAlbumModal()">+ Create Album</button>
             </div>
             <div class="albums-grid" id="albums-grid">Loading...</div>
+            <div class="albums-header places-header" id="places-header" style="display: none;">
+                <h2>Places</h2>
+            </div>
+            <div class="albums-grid" id="places-grid"></div>
         </div>
     `);
 
     try {
         const data = await api.get('/api/v1/albums');
-        let gridHtml = '';
+        const userAlbums = data.albums.filter(a => a.type === 'manual' || a.type === 'favorites');
+        const placeAlbums = data.albums.filter(a => a.type === 'place');
 
-        for (const album of data.albums) {
-            gridHtml += `
+        let albumsHtml = '';
+        for (const album of userAlbums) {
+            albumsHtml += `
                 <div class="album-card" onclick="router.navigate('/albums/${album.id}')">
                     <div class="album-card-cover">
                         ${album.cover
@@ -888,8 +894,28 @@ async function renderAlbums() {
                 </div>
             `;
         }
+        html($('#albums-grid'), albumsHtml || 'No albums yet');
 
-        html($('#albums-grid'), gridHtml || 'No albums yet');
+        if (placeAlbums.length > 0) {
+            $('#places-header').style.display = 'flex';
+            let placesHtml = '';
+            for (const album of placeAlbums) {
+                placesHtml += `
+                    <div class="album-card" onclick="router.navigate('/albums/${album.id}')">
+                        <div class="album-card-cover">
+                            ${album.cover
+                                ? `<img src="${API_BASE}${album.cover}" alt="">`
+                                : '📍'}
+                        </div>
+                        <div class="album-card-info">
+                            <h3>${album.name}</h3>
+                            <span>${album.photo_count} photos</span>
+                        </div>
+                    </div>
+                `;
+            }
+            html($('#places-grid'), placesHtml);
+        }
     } catch (err) {
         html($('#albums-grid'), `Error: ${err.message}`);
     }

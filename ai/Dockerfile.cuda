@@ -1,0 +1,67 @@
+# =============================================================================
+# Imgable AI Service - CUDA Dockerfile (NVIDIA GPU)
+# =============================================================================
+
+FROM nvidia/cuda:12.1-cudnn8-runtime-ubuntu22.04
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Install Python and system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3-pip \
+    python3.11-venv \
+    # OpenCV dependencies
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    # Curl for healthcheck
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash aiuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies (CUDA version of ONNX Runtime)
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y onnxruntime \
+    && pip install --no-cache-dir onnxruntime-gpu==1.20.1
+
+# Copy application code
+COPY app/ ./app/
+
+# Create models directory
+RUN mkdir -p /models && chown -R aiuser:aiuser /models
+
+# Switch to non-root user
+USER aiuser
+
+# Expose port
+EXPOSE 3004
+
+# Environment for CUDA
+ENV AI_DEVICE=cuda
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3004/health || exit 1
+
+# Run application
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3004"]

@@ -63,6 +63,7 @@ input { padding: 8px; border: 1px solid #ccc; }
 
 /* Albums */
 .albums-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.albums-header.places-header { margin-top: 40px; }
 .albums-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
 .album-card { background: #fff; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; cursor: pointer; }
 .album-card-cover { aspect-ratio: 4/3; background: #eee; display: flex; align-items: center; justify-content: center; font-size: 48px; }

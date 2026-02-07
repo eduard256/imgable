@@ -1,0 +1,179 @@
+# =============================================================================
+# Imgable AI Service - Docker Compose Configuration
+# =============================================================================
+#
+# Usage:
+#   CPU:  docker-compose up -d
+#   GPU:  docker-compose -f docker-compose.yml -f docker-compose.cuda.yml up -d
+#
+# =============================================================================
+
+services:
+  ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: imgable/ai:latest
+    container_name: imgable-ai
+    restart: unless-stopped
+
+    environment:
+      # ═══════════════════════════════════════════════════════════════════════
+      # DATABASE CONNECTION
+      # ═══════════════════════════════════════════════════════════════════════
+      - DATABASE_URL=${DATABASE_URL:-postgres://imgable:imgable@db:5432/imgable}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # PATHS
+      # ═══════════════════════════════════════════════════════════════════════
+      - MEDIA_PATH=/media
+      - MODELS_PATH=/models
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # API SERVER
+      # ═══════════════════════════════════════════════════════════════════════
+      - API_PORT=3004
+      - API_HOST=0.0.0.0
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # PERFORMANCE
+      # ═══════════════════════════════════════════════════════════════════════
+      # Number of CPU threads for ONNX (0 = auto, uses all cores)
+      - AI_THREADS=${AI_THREADS:-0}
+
+      # Delay between processing photos (ms). Higher = less CPU load
+      - AI_DELAY_MS=${AI_DELAY_MS:-100}
+
+      # Batch size (photos processed together)
+      - AI_BATCH_SIZE=${AI_BATCH_SIZE:-1}
+
+      # Maximum CPU usage percentage (0 = no limit)
+      - AI_MAX_CPU_PERCENT=${AI_MAX_CPU_PERCENT:-0}
+
+      # Only process when system is idle
+      - AI_IDLE_ONLY=${AI_IDLE_ONLY:-false}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # AUTO-START
+      # ═══════════════════════════════════════════════════════════════════════
+      # Start processing when service starts
+      - AI_AUTO_START=${AI_AUTO_START:-true}
+
+      # Check for new photos every N seconds (0 = manual only)
+      - AI_SCAN_INTERVAL=${AI_SCAN_INTERVAL:-3600}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # FACE DETECTION
+      # ═══════════════════════════════════════════════════════════════════════
+      # Enable face detection and recognition
+      - AI_FACES_ENABLED=${AI_FACES_ENABLED:-true}
+
+      # Minimum detection confidence (0.0-1.0)
+      - AI_FACES_MIN_CONFIDENCE=${AI_FACES_MIN_CONFIDENCE:-0.5}
+
+      # Minimum face size in pixels
+      - AI_FACES_MIN_SIZE=${AI_FACES_MIN_SIZE:-30}
+
+      # Maximum faces per photo (0 = no limit)
+      - AI_FACES_MAX_PER_PHOTO=${AI_FACES_MAX_PER_PHOTO:-50}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # FACE CLUSTERING
+      # ═══════════════════════════════════════════════════════════════════════
+      # Similarity threshold for grouping faces (0.0-1.0, higher = stricter)
+      - AI_CLUSTER_THRESHOLD=${AI_CLUSTER_THRESHOLD:-0.6}
+
+      # Minimum faces to create a person
+      - AI_CLUSTER_MIN_FACES=${AI_CLUSTER_MIN_FACES:-3}
+
+      # Auto-merge similar clusters
+      - AI_CLUSTER_AUTO_MERGE=${AI_CLUSTER_AUTO_MERGE:-true}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # TAGS (Objects & Scenes)
+      # ═══════════════════════════════════════════════════════════════════════
+      # Enable object and scene tagging
+      - AI_TAGS_ENABLED=${AI_TAGS_ENABLED:-true}
+
+      # Minimum tag confidence (0.0-1.0)
+      - AI_TAGS_MIN_CONFIDENCE=${AI_TAGS_MIN_CONFIDENCE:-0.15}
+
+      # Maximum tags per photo (0 = no limit)
+      - AI_TAGS_MAX_PER_PHOTO=${AI_TAGS_MAX_PER_PHOTO:-10}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # OCR (Text Recognition)
+      # ═══════════════════════════════════════════════════════════════════════
+      # Enable OCR for date extraction
+      - AI_OCR_ENABLED=${AI_OCR_ENABLED:-true}
+
+      # OCR mode: 'auto' (bottom only), 'full' (entire image), 'off'
+      - AI_OCR_MODE=${AI_OCR_MODE:-auto}
+
+      # Minimum OCR confidence (0.0-1.0)
+      - AI_OCR_MIN_CONFIDENCE=${AI_OCR_MIN_CONFIDENCE:-0.7}
+
+      # Update taken_at from OCR date if empty
+      - AI_OCR_UPDATE_TAKEN_AT=${AI_OCR_UPDATE_TAKEN_AT:-true}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # MODELS
+      # ═══════════════════════════════════════════════════════════════════════
+      # Model TTL in seconds (0 = keep in memory forever)
+      - AI_MODEL_TTL=${AI_MODEL_TTL:-1800}
+
+      # Preload models on startup
+      - AI_MODEL_PRELOAD=${AI_MODEL_PRELOAD:-true}
+
+      # Custom model repository URL (optional)
+      - AI_MODEL_REPO=${AI_MODEL_REPO:-}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # LOGGING
+      # ═══════════════════════════════════════════════════════════════════════
+      # Log level: debug, info, warning, error
+      - AI_LOG_LEVEL=${AI_LOG_LEVEL:-info}
+
+      # Log each processed photo
+      - AI_LOG_EACH_PHOTO=${AI_LOG_EACH_PHOTO:-false}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # RETRY
+      # ═══════════════════════════════════════════════════════════════════════
+      # Maximum processing attempts before marking as error
+      - AI_MAX_RETRIES=${AI_MAX_RETRIES:-3}
+
+    volumes:
+      # Media files (read-only)
+      - ${MEDIA_PATH:-./media}:/media:ro
+
+      # Models cache (persistent)
+      - ai-models:/models
+
+    ports:
+      # Expose for debugging (optional, remove in production)
+      - "${AI_PORT:-3004}:3004"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '${AI_CPU_LIMIT:-0}'
+          memory: ${AI_MEMORY_LIMIT:-2G}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - imgable-network
+
+volumes:
+  ai-models:
+    name: imgable-ai-models
+
+networks:
+  imgable-network:
+    external: true
