@@ -15,6 +15,8 @@ volumes:
     name: imgable-redis-data
   api_data:
     name: imgable-api-data
+  ai_models:
+    name: imgable-ai-models
 
 services:
   # ===========================================================================
@@ -309,3 +311,70 @@ services:
       resources:
         limits:
           memory: 256M
+
+  # ===========================================================================
+  # AI Service
+  # Face detection, object recognition, OCR for photos
+  # ===========================================================================
+  ai:
+    build:
+      context: ./ai
+      dockerfile: Dockerfile
+    container_name: imgable-ai
+    restart: unless-stopped
+    environment:
+      # Database connection
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      # Paths
+      MEDIA_PATH: /media
+      MODELS_PATH: /models
+      # API server
+      API_PORT: "8004"
+      API_HOST: 0.0.0.0
+      # Performance
+      AI_THREADS: ${AI_THREADS:-0}
+      AI_DELAY_MS: ${AI_DELAY_MS:-100}
+      AI_BATCH_SIZE: ${AI_BATCH_SIZE:-1}
+      # Auto-start
+      AI_AUTO_START: ${AI_AUTO_START:-true}
+      AI_SCAN_INTERVAL: ${AI_SCAN_INTERVAL:-3600}
+      # Face detection
+      AI_FACES_ENABLED: ${AI_FACES_ENABLED:-true}
+      AI_FACES_MIN_CONFIDENCE: ${AI_FACES_MIN_CONFIDENCE:-0.5}
+      AI_FACES_MIN_SIZE: ${AI_FACES_MIN_SIZE:-30}
+      # Face clustering
+      AI_CLUSTER_THRESHOLD: ${AI_CLUSTER_THRESHOLD:-0.6}
+      AI_CLUSTER_MIN_FACES: ${AI_CLUSTER_MIN_FACES:-3}
+      # Tags (objects & scenes)
+      AI_TAGS_ENABLED: ${AI_TAGS_ENABLED:-true}
+      AI_TAGS_MIN_CONFIDENCE: ${AI_TAGS_MIN_CONFIDENCE:-0.15}
+      # OCR
+      AI_OCR_ENABLED: ${AI_OCR_ENABLED:-true}
+      AI_OCR_MODE: ${AI_OCR_MODE:-auto}
+      # Logging
+      AI_LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      # Media files (read-only)
+      - ${DATA_PATH:-/data/imgable}/media:/media:ro
+      # Models cache (persistent)
+      - ai_models:/models
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: ${AI_MEMORY_LIMIT:-2G}

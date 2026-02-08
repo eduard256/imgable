@@ -1,8 +1,11 @@
 # =============================================================================
 # Imgable AI Service - CUDA Dockerfile (NVIDIA GPU)
 # =============================================================================
+# Base: Debian Bookworm with CUDA 12.1
+# Python version must match CPU Dockerfile (3.11)
+# =============================================================================
 
-FROM nvidia/cuda:12.1-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1-cudnn8-runtime-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install Python and system dependencies
+# Install Python 3.11 and system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3-pip \
@@ -22,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libgomp1 \
+    libgl1 \
     # Curl for healthcheck
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -40,28 +44,28 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies (CUDA version of ONNX Runtime)
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip uninstall -y onnxruntime \
-    && pip install --no-cache-dir onnxruntime-gpu==1.20.1
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt \
+    && pip uninstall -y --break-system-packages onnxruntime \
+    && pip install --no-cache-dir --break-system-packages onnxruntime-gpu==1.20.1
 
 # Copy application code
 COPY app/ ./app/
 
-# Create models directory
-RUN mkdir -p /models && chown -R aiuser:aiuser /models
+# Create models directory and set permissions for non-root user
+RUN mkdir -p /models && chown -R aiuser:aiuser /models /app
 
 # Switch to non-root user
 USER aiuser
 
 # Expose port
-EXPOSE 3004
+EXPOSE 8004
 
 # Environment for CUDA
 ENV AI_DEVICE=cuda
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:3004/health || exit 1
+    CMD curl -f http://localhost:8004/health || exit 1
 
 # Run application
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3004"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004"]

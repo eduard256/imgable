@@ -1,6 +1,6 @@
 #!/bin/bash
 # Reset script for imgable - cleans DB, media files, rebuilds and restarts everything
-# Usage: ./scripts/reset.sh [--no-build]
+# Usage: ./scripts/reset.sh [--no-build] [--with-models]
 
 set -e
 
@@ -21,10 +21,15 @@ error() { echo -e "${RED}[x]${NC} $1"; exit 1; }
 
 # Parse arguments
 NO_BUILD=false
+WITH_MODELS=false
 for arg in "$@"; do
     case $arg in
         --no-build)
             NO_BUILD=true
+            shift
+            ;;
+        --with-models)
+            WITH_MODELS=true
             shift
             ;;
     esac
@@ -32,9 +37,12 @@ done
 
 # Confirmation
 echo -e "${RED}WARNING: This will delete ALL data including:${NC}"
-echo "  - Database (photos, albums, places, settings)"
+echo "  - Database (photos, albums, places, AI tags, settings)"
 echo "  - All processed media files"
 echo "  - Redis queue data"
+if [ "$WITH_MODELS" = true ]; then
+    echo "  - AI models cache (--with-models)"
+fi
 echo ""
 read -p "Are you sure? (y/N) " -n 1 -r
 echo
@@ -50,6 +58,10 @@ docker compose down
 # Remove volumes
 log "Removing volumes..."
 docker volume rm imgable-postgres-data imgable-redis-data imgable-api-data 2>/dev/null || true
+if [ "$WITH_MODELS" = true ]; then
+    log "Removing AI models cache..."
+    docker volume rm imgable-ai-models 2>/dev/null || true
+fi
 
 # Clean media directories
 log "Cleaning media directories..."

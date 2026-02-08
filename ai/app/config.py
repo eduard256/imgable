@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     models_path: str = Field(default="/models", alias="MODELS_PATH")
 
     # API
-    api_port: int = Field(default=3004, alias="API_PORT")
+    api_port: int = Field(default=8004, alias="API_PORT")
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
 
     # Performance
