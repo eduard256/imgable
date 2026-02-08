@@ -105,11 +105,11 @@ echo ""
 log "Final status:"
 docker compose ps
 
-# Check if all healthy
+# Check if all healthy (7 services: postgres, redis, scanner, processor, places, api, ai)
 HEALTHY_COUNT=$(docker compose ps --format json | grep -c '"healthy"' 2>/dev/null || echo "0")
-if [ "$HEALTHY_COUNT" -ge 6 ]; then
+if [ "$HEALTHY_COUNT" -ge 7 ]; then
     echo ""
-    log "Reset complete! All services are healthy."
+    log "Reset complete! All 7 services are healthy."
 else
     warn "Some services may not be healthy yet. Check logs with: docker compose logs"
 fi
