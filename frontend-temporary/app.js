@@ -866,7 +866,13 @@ async function renderAlbums() {
                 <button onclick="showCreateAlbumModal()">+ Create Album</button>
             </div>
             <div class="albums-grid" id="albums-grid">Loading...</div>
-            <div class="albums-header places-header" id="places-header" style="display: none;">
+
+            <div class="albums-header" id="people-header" style="display: none;">
+                <h2>People</h2>
+            </div>
+            <div class="albums-grid" id="people-grid"></div>
+
+            <div class="albums-header" id="places-header" style="display: none;">
                 <h2>Places</h2>
             </div>
             <div class="albums-grid" id="places-grid"></div>
@@ -876,8 +882,10 @@ async function renderAlbums() {
     try {
         const data = await api.get('/api/v1/albums');
         const userAlbums = data.albums.filter(a => a.type === 'manual' || a.type === 'favorites');
+        const personAlbums = data.albums.filter(a => a.type === 'person' || a.type === 'people');
         const placeAlbums = data.albums.filter(a => a.type === 'place');
 
+        // User albums
         let albumsHtml = '';
         for (const album of userAlbums) {
             albumsHtml += `
@@ -896,6 +904,29 @@ async function renderAlbums() {
         }
         html($('#albums-grid'), albumsHtml || 'No albums yet');
 
+        // People albums (persons and groups)
+        if (personAlbums.length > 0) {
+            $('#people-header').style.display = 'flex';
+            let peopleHtml = '';
+            for (const album of personAlbums) {
+                peopleHtml += `
+                    <div class="album-card" onclick="router.navigate('/albums/${album.id}')">
+                        <div class="album-card-cover">
+                            ${album.cover
+                                ? `<img src="${API_BASE}${album.cover}" alt="">`
+                                : (album.type === 'person' ? '👤' : '👥')}
+                        </div>
+                        <div class="album-card-info">
+                            <h3>${album.name}</h3>
+                            <span>${album.photo_count} photos</span>
+                        </div>
+                    </div>
+                `;
+            }
+            html($('#people-grid'), peopleHtml);
+        }
+
+        // Place albums
         if (placeAlbums.length > 0) {
             $('#places-header').style.display = 'flex';
             let placesHtml = '';

@@ -220,15 +220,6 @@ async def get_or_create_object_tag(name: str) -> str:
     """
     await db.execute(query, tag_id, name)
 
-    # Create album if not exists
-    album_id = f"album_{tag_id}"
-    album_query = """
-        INSERT INTO albums (id, type, name, ai_tag_id, photo_count, created_at, updated_at)
-        VALUES ($1, 'tag', $2, $3, 0, NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING
-    """
-    await db.execute(album_query, album_id, name, tag_id)
-
     return tag_id
 
 
@@ -243,15 +234,6 @@ async def get_or_create_scene_tag(name: str) -> str:
         RETURNING id
     """
     await db.execute(query, tag_id, name)
-
-    # Create album if not exists
-    album_id = f"album_{tag_id}"
-    album_query = """
-        INSERT INTO albums (id, type, name, ai_tag_id, photo_count, created_at, updated_at)
-        VALUES ($1, 'tag', $2, $3, 0, NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING
-    """
-    await db.execute(album_query, album_id, name, tag_id)
 
     return tag_id
 
