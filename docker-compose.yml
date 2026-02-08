@@ -332,7 +332,9 @@ services:
       API_PORT: "8004"
       API_HOST: 0.0.0.0
       # Performance
+      # Number of CPU threads for ONNX (0 = auto, uses all cores)
       AI_THREADS: ${AI_THREADS:-0}
+      # Delay between processing photos (ms). Higher = less CPU load
       AI_DELAY_MS: ${AI_DELAY_MS:-100}
       AI_BATCH_SIZE: ${AI_BATCH_SIZE:-1}
       # Auto-start
@@ -377,4 +379,7 @@ services:
     deploy:
       resources:
         limits:
+          # CPU cores limit (0 = no limit)
+          cpus: '${AI_CPU_LIMIT:-0}'
+          # Memory limit
           memory: ${AI_MEMORY_LIMIT:-2G}
