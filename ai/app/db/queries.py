@@ -150,15 +150,6 @@ async def get_or_create_person_tag(
     """
     await db.execute(insert_query, person_id, name, embedding)
 
-    # Create album for this person
-    album_id = f"album_{person_id}"
-    album_query = """
-        INSERT INTO albums (id, type, name, ai_tag_id, photo_count, created_at, updated_at)
-        VALUES ($1, 'person', $2, $3, 0, NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING
-    """
-    await db.execute(album_query, album_id, name, person_id)
-
     return person_id, True
 
 
@@ -178,7 +169,7 @@ async def get_or_create_people_tag(person_ids: List[str]) -> str:
     if row:
         return row["id"]
 
-    # Get person names for album name
+    # Get person names for combined name
     names_query = """
         SELECT name FROM ai_tags
         WHERE id = ANY($1)
@@ -195,15 +186,6 @@ async def get_or_create_people_tag(person_ids: List[str]) -> str:
         VALUES ($1, 'people', $2, 'auto', $3, 0, NOW(), NOW())
     """
     await db.execute(insert_query, people_id, combined_name, sorted_ids)
-
-    # Create album for this people combination
-    album_id = f"album_{people_id}"
-    album_query = """
-        INSERT INTO albums (id, type, name, ai_tag_id, photo_count, created_at, updated_at)
-        VALUES ($1, 'people', $2, $3, 0, NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING
-    """
-    await db.execute(album_query, album_id, combined_name, people_id)
 
     return people_id
 

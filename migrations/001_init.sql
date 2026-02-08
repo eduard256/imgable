@@ -161,10 +161,10 @@ CREATE TABLE albums (
     id TEXT PRIMARY KEY,                          -- UUID, 'favorites' is hardcoded
 
     -- Album type
-    type TEXT NOT NULL DEFAULT 'manual',          -- 'manual' / 'favorites' / 'place' / 'person' / 'people' / 'tag'
+    type TEXT NOT NULL DEFAULT 'manual',          -- 'manual' / 'favorites' / 'place'
 
     -- Data
-    name TEXT NOT NULL,                           -- 'Vacation 2023' / 'Favorites' / 'Moscow' / 'Марина'
+    name TEXT NOT NULL,                           -- 'Vacation 2023' / 'Favorites' / 'Moscow'
     description TEXT,                             -- album description
 
     -- Cover
@@ -172,9 +172,6 @@ CREATE TABLE albums (
 
     -- Link to place (for type='place')
     place_id TEXT REFERENCES places(id) ON DELETE CASCADE,  -- if this is auto-album by place
-
-    -- Link to AI tag (for type='person', 'people', 'tag')
-    ai_tag_id TEXT REFERENCES ai_tags(id) ON DELETE CASCADE,  -- if this is AI-generated album
 
     -- Statistics (denormalized)
     photo_count INT NOT NULL DEFAULT 0,           -- photo count
@@ -184,7 +181,7 @@ CREATE TABLE albums (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Constraints
-    CONSTRAINT valid_album_type CHECK (type IN ('manual', 'favorites', 'place', 'person', 'people', 'tag'))
+    CONSTRAINT valid_album_type CHECK (type IN ('manual', 'favorites', 'place'))
 );
 
 -- ============================================
@@ -369,7 +366,6 @@ CREATE INDEX idx_ai_queue_pending ON ai_queue(created_at) WHERE status = 'pendin
 -- Albums
 CREATE INDEX idx_albums_type ON albums(type);                                    -- filter by type
 CREATE INDEX idx_albums_place ON albums(place_id) WHERE place_id IS NOT NULL;    -- place albums
-CREATE INDEX idx_albums_ai_tag ON albums(ai_tag_id) WHERE ai_tag_id IS NOT NULL; -- AI albums
 CREATE INDEX idx_albums_updated ON albums(updated_at DESC);                      -- sorting
 
 -- Album-photo links
@@ -512,31 +508,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to handle AI tag album sync
--- When photo_ai_tags changes, automatically add/remove from AI albums
-CREATE OR REPLACE FUNCTION sync_ai_tag_album()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        -- Add photo to album for this AI tag
-        INSERT INTO album_photos (album_id, photo_id, added_at)
-        SELECT id, NEW.photo_id, NOW() FROM albums WHERE ai_tag_id = NEW.tag_id
-        ON CONFLICT (album_id, photo_id) DO NOTHING;
-    ELSIF TG_OP = 'DELETE' THEN
-        -- Remove photo from album only if no other detections of this tag remain
-        IF NOT EXISTS (
-            SELECT 1 FROM photo_ai_tags
-            WHERE photo_id = OLD.photo_id AND tag_id = OLD.tag_id AND id != OLD.id
-        ) THEN
-            DELETE FROM album_photos
-            WHERE photo_id = OLD.photo_id
-            AND album_id IN (SELECT id FROM albums WHERE ai_tag_id = OLD.tag_id);
-        END IF;
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Function to add photo to AI queue when ready
 CREATE OR REPLACE FUNCTION add_to_ai_queue()
 RETURNS TRIGGER AS $$
@@ -609,12 +580,6 @@ CREATE TRIGGER photos_place_album_sync
     FOR EACH ROW
     EXECUTE FUNCTION sync_place_album();
 
--- Auto-sync AI tag album
-CREATE TRIGGER photo_ai_tags_album_sync
-    AFTER INSERT OR DELETE ON photo_ai_tags
-    FOR EACH ROW
-    EXECUTE FUNCTION sync_ai_tag_album();
-
 -- Auto-add to AI queue when photo is ready
 CREATE TRIGGER photos_add_to_ai_queue
     AFTER INSERT OR UPDATE OF status ON photos
@@ -655,8 +620,8 @@ INSERT INTO settings (key, value, updated_at) VALUES
 
 COMMENT ON TABLE photos IS 'Main table storing all photo and video metadata. Files are stored on disk in /media/{id[0:2]}/{id[2:4]}/{id}_{size}.webp';
 COMMENT ON TABLE places IS 'Geographic locations for grouping photos. Created automatically during GPS processing or manually by user';
-COMMENT ON TABLE ai_tags IS 'AI-detected tags: people (faces), people groups, objects, and scenes. Used to auto-generate albums';
-COMMENT ON TABLE albums IS 'Photo collections. Includes system album "favorites", auto-generated place albums, and AI-generated person/tag albums';
+COMMENT ON TABLE ai_tags IS 'AI-detected tags: people (faces), people groups, objects, and scenes';
+COMMENT ON TABLE albums IS 'Photo collections. Includes system album "favorites" and auto-generated place albums';
 COMMENT ON TABLE album_photos IS 'Many-to-many relationship between albums and photos with ordering support';
 COMMENT ON TABLE photo_ai_tags IS 'Links photos to AI tags with bounding box coordinates for faces and confidence scores';
 COMMENT ON TABLE ai_queue IS 'Queue for AI processing. Photos are added when ready and processed in priority order';
