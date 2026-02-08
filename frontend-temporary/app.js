@@ -1499,10 +1499,11 @@ async function renderSync() {
 
 async function refreshSync() {
     try {
-        const [scanner, processor, places] = await Promise.all([
+        const [scanner, processor, places, ai] = await Promise.all([
             api.get('/api/v1/sync/scanner/status'),
             api.get('/api/v1/sync/processor/status'),
-            api.get('/api/v1/sync/places/api/v1/status')
+            api.get('/api/v1/sync/places/api/v1/status'),
+            api.get('/api/v1/sync/ai/api/v1/status')
         ]);
 
         const lastRun = places.last_run;
@@ -1548,6 +1549,23 @@ async function refreshSync() {
                 </div>
             </div>
 
+            <div class="sync-section">
+                <h3>AI</h3>
+                <div class="sync-row"><span>Status:</span> <span>${ai.status}</span></div>
+                <div class="sync-row"><span>Queue:</span> <span>${ai.queue?.pending || 0} pending</span></div>
+                <div class="sync-row"><span>Current photo:</span> <span>${ai.current_photo?.id || '-'}</span></div>
+                <div class="sync-row"><span>Estimated time:</span> <span>${ai.estimated_time_seconds ? formatDuration(ai.estimated_time_seconds) : '-'}</span></div>
+                <div class="sync-row"><span>Last run:</span> <span>${ai.last_run?.started_at ? new Date(ai.last_run.started_at).toLocaleString() : 'Never'}</span></div>
+                <div class="sync-row"><span>Photos processed:</span> <span>${ai.last_run?.photos_processed || 0}</span></div>
+                <div class="sync-row"><span>Faces found:</span> <span>${ai.last_run?.faces_found || 0}</span></div>
+                <div class="sync-row"><span>Tags added:</span> <span>${ai.last_run?.tags_added || 0}</span></div>
+                <div class="sync-actions">
+                    ${ai.status === 'processing'
+                        ? '<button onclick="stopAI()">⏹ Stop</button>'
+                        : '<button onclick="triggerAIRun()">🔄 Run Now</button>'}
+                </div>
+            </div>
+
             <button onclick="refreshSync()">Refresh</button>
         `);
     } catch (err) {
@@ -1587,6 +1605,34 @@ async function triggerPlacesRun() {
     } catch (err) {
         alert('Error: ' + err.message);
     }
+}
+
+async function triggerAIRun() {
+    try {
+        await api.post('/api/v1/sync/ai/api/v1/run');
+        alert('AI processing started');
+        refreshSync();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function stopAI() {
+    try {
+        await api.post('/api/v1/sync/ai/api/v1/stop');
+        alert('AI processing stopping');
+        refreshSync();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function formatDuration(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `~${Math.floor(seconds / 60)} min`;
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return mins > 0 ? `~${hours}h ${mins}m` : `~${hours}h`;
 }
 
 // Share View (public)
