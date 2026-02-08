@@ -294,6 +294,19 @@ class AIWorker:
             self._status = WorkerStatus.IDLE
             self._current_photo = None
 
+            # Refresh people_groups materialized view if any photos were processed
+            if stats.photos_processed > 0:
+                try:
+                    await db.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY people_groups")
+                    logger.info("Refreshed people_groups materialized view")
+                except Exception as e:
+                    # CONCURRENTLY requires unique index, fallback to regular refresh
+                    try:
+                        await db.execute("REFRESH MATERIALIZED VIEW people_groups")
+                        logger.info("Refreshed people_groups materialized view (non-concurrent)")
+                    except Exception as e2:
+                        logger.warning(f"Failed to refresh people_groups: {e2}")
+
             duration = (stats.completed_at - stats.started_at).total_seconds()
             logger.info(
                 f"AI processing completed: "

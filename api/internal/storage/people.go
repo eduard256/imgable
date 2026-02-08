@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // =============================================================================
@@ -652,7 +650,7 @@ func (s *Storage) MergePersons(ctx context.Context, params MergePersonsParams) (
 	res, err := tx.Exec(ctx, `
 		UPDATE faces SET person_id = $1, updated_at = NOW()
 		WHERE person_id = ANY($2)
-	`, targetID, pq.Array(sourceIDs))
+	`, targetID, sourceIDs)
 	if err != nil {
 		return nil, fmt.Errorf("move faces: %w", err)
 	}
@@ -700,7 +698,7 @@ func (s *Storage) MergePersons(ctx context.Context, params MergePersonsParams) (
 	}
 
 	// Delete source persons (cascades to faces table, but faces already moved)
-	_, err = tx.Exec(ctx, `DELETE FROM persons WHERE id = ANY($1)`, pq.Array(sourceIDs))
+	_, err = tx.Exec(ctx, `DELETE FROM persons WHERE id = ANY($1)`, sourceIDs)
 	if err != nil {
 		return nil, fmt.Errorf("delete source persons: %w", err)
 	}
@@ -857,7 +855,7 @@ func (s *Storage) UpdatePersonPhotos(ctx context.Context, params UpdatePersonPho
 				AND f.person_id = $1
 				AND pf.photo_id = ANY($2)
 				AND pf.hidden = FALSE
-		`, params.PersonID, pq.Array(params.Hide))
+		`, params.PersonID, params.Hide)
 		if err != nil {
 			return 0, fmt.Errorf("hide photos: %w", err)
 		}
@@ -874,7 +872,7 @@ func (s *Storage) UpdatePersonPhotos(ctx context.Context, params UpdatePersonPho
 				AND f.person_id = $1
 				AND pf.photo_id = ANY($2)
 				AND pf.hidden = TRUE
-		`, params.PersonID, pq.Array(params.Unhide))
+		`, params.PersonID, params.Unhide)
 		if err != nil {
 			return 0, fmt.Errorf("unhide photos: %w", err)
 		}
@@ -935,13 +933,13 @@ func (s *Storage) ListPeopleGroups(ctx context.Context, params PeopleGroupListPa
 	var groups []PeopleGroupWithNames
 	for rows.Next() {
 		var g PeopleGroupWithNames
-		var personIDs pq.StringArray
+		var personIDs []string
 
 		if err := rows.Scan(&personIDs, &g.PhotoCount); err != nil {
 			return nil, 0, fmt.Errorf("scan group: %w", err)
 		}
 
-		g.PersonIDs = []string(personIDs)
+		g.PersonIDs = personIDs
 		groups = append(groups, g)
 	}
 
@@ -984,7 +982,7 @@ func (s *Storage) getPersonNames(ctx context.Context, ids []string) (map[string]
 	}
 
 	query := `SELECT id, name FROM persons WHERE id = ANY($1)`
-	rows, err := s.db.Query(ctx, query, pq.Array(ids))
+	rows, err := s.db.Query(ctx, query, ids)
 	if err != nil {
 		return nil, fmt.Errorf("query person names: %w", err)
 	}
@@ -1016,7 +1014,7 @@ func (s *Storage) GetGroupPhotos(ctx context.Context, params GroupPhotosParams) 
 	copy(sortedIDs, params.PersonIDs)
 	sort.Strings(sortedIDs)
 
-	args := []interface{}{pq.Array(sortedIDs), len(sortedIDs)}
+	args := []interface{}{sortedIDs, len(sortedIDs)}
 	argNum := 3
 
 	cursorCond := ""
@@ -1036,11 +1034,11 @@ func (s *Storage) GetGroupPhotos(ctx context.Context, params GroupPhotosParams) 
 	hiddenCond := ""
 	if params.HiddenOnly {
 		hiddenCond = fmt.Sprintf(" AND EXISTS (SELECT 1 FROM hidden_group_photos hgp WHERE hgp.person_ids = $%d AND hgp.photo_id = ph.id)", argNum)
-		args = append(args, pq.Array(sortedIDs))
+		args = append(args, sortedIDs)
 		argNum++
 	} else {
 		hiddenCond = fmt.Sprintf(" AND NOT EXISTS (SELECT 1 FROM hidden_group_photos hgp WHERE hgp.person_ids = $%d AND hgp.photo_id = ph.id)", argNum)
-		args = append(args, pq.Array(sortedIDs))
+		args = append(args, sortedIDs)
 		argNum++
 	}
 
@@ -1110,7 +1108,7 @@ func (s *Storage) UpdateGroupPhotos(ctx context.Context, params UpdateGroupPhoto
 			INSERT INTO hidden_group_photos (person_ids, photo_id, hidden_at)
 			VALUES ($1, $2, NOW())
 			ON CONFLICT (person_ids, photo_id) DO NOTHING
-		`, pq.Array(sortedIDs), photoID)
+		`, sortedIDs, photoID)
 		if err != nil {
 			return 0, fmt.Errorf("hide group photo: %w", err)
 		}
@@ -1122,7 +1120,7 @@ func (s *Storage) UpdateGroupPhotos(ctx context.Context, params UpdateGroupPhoto
 		res, err := s.db.Exec(ctx, `
 			DELETE FROM hidden_group_photos
 			WHERE person_ids = $1 AND photo_id = ANY($2)
-		`, pq.Array(sortedIDs), pq.Array(params.Unhide))
+		`, sortedIDs, params.Unhide)
 		if err != nil {
 			return 0, fmt.Errorf("unhide group photos: %w", err)
 		}

@@ -292,6 +292,7 @@ function renderHeader(active) {
                 <nav class="nav">
                     <a href="/" class="${active === 'gallery' ? 'active' : ''}" data-link>Gallery</a>
                     <a href="/albums" class="${active === 'albums' ? 'active' : ''}" data-link>Albums</a>
+                    <a href="/people" class="${active === 'people' ? 'active' : ''}" data-link>People</a>
                     <a href="/map" class="${active === 'map' ? 'active' : ''}" data-link>Map</a>
                     <a href="/shares" class="${active === 'shares' ? 'active' : ''}" data-link>Shares</a>
                     <a href="/stats" class="${active === 'stats' ? 'active' : ''}" data-link>Stats</a>
@@ -2381,11 +2382,646 @@ async function renderStats() {
     }
 }
 
+// =============================================================================
+// People Page - AI Face Recognition
+// =============================================================================
+
+// Random placeholder names for unnamed persons
+const UNKNOWN_PLACEHOLDERS = [
+    "Who's This?", "Someone", "Do I Know You?", "Name?",
+    "You Look Familiar", "Have We Met?", "Wait, Who?",
+    "New Here?", "Ring Any Bells?", "Seen You Before"
+];
+
+function getUnknownPlaceholder(personId) {
+    // Use person ID to get consistent placeholder per person
+    const hash = personId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return UNKNOWN_PLACEHOLDERS[hash % UNKNOWN_PLACEHOLDERS.length];
+}
+
+function formatPersonName(person) {
+    if (person.name_source === 'manual') {
+        return person.name;
+    }
+    return getUnknownPlaceholder(person.id);
+}
+
+function formatGroupNames(names, personIds) {
+    const formatted = names.map((name, i) => {
+        if (name && !name.startsWith('Unknown ')) {
+            return name;
+        }
+        return null; // Unknown person
+    });
+
+    const known = formatted.filter(n => n !== null);
+    const unknownCount = formatted.filter(n => n === null).length;
+
+    if (known.length === 0) {
+        return `${unknownCount} people`;
+    }
+    if (unknownCount === 0) {
+        return known.join(', ');
+    }
+    return `${known.join(', ')} and ${unknownCount} other${unknownCount > 1 ? 's' : ''}`;
+}
+
+// People state
+let peopleOffset = 0;
+let peopleTotal = 0;
+let groupsOffset = 0;
+let groupsTotal = 0;
+const PEOPLE_LIMIT = 15;
+
+// Person view state
+let currentPersonId = null;
+let currentPersonPhotos = [];
+let personNextCursor = null;
+let personHasMore = false;
+let personLoadingMore = false;
+let viewingHidden = false;
+
+// Group view state
+let currentGroupIds = null;
+
+async function renderPeople() {
+    peopleOffset = 0;
+    groupsOffset = 0;
+
+    html($('#app'), renderHeader('people') + `
+        <div class="container">
+            <div class="people-section">
+                <div class="section-header">
+                    <h2>People</h2>
+                    <span class="section-count" id="people-count"></span>
+                </div>
+                <div class="people-grid" id="people-grid">Loading...</div>
+                <button class="load-more-btn" id="load-more-people" style="display:none" onclick="loadMorePeople()">Load More</button>
+            </div>
+
+            <div class="people-section" id="groups-section" style="display:none">
+                <div class="section-header">
+                    <h2>Together</h2>
+                    <span class="section-count" id="groups-count"></span>
+                </div>
+                <div class="people-grid groups-grid" id="groups-grid"></div>
+                <button class="load-more-btn" id="load-more-groups" style="display:none" onclick="loadMoreGroups()">Load More</button>
+            </div>
+        </div>
+    `);
+
+    await loadPeople();
+    await loadGroups();
+}
+
+async function loadPeople() {
+    try {
+        const data = await api.get(`/api/v1/people?limit=${PEOPLE_LIMIT}&offset=${peopleOffset}`);
+        peopleTotal = data.total;
+
+        $('#people-count').textContent = `(${peopleTotal})`;
+
+        if (peopleOffset === 0) {
+            html($('#people-grid'), '');
+        }
+
+        if (data.people.length === 0 && peopleOffset === 0) {
+            html($('#people-grid'), '<p class="empty-message">No people detected yet. Upload photos and wait for AI processing.</p>');
+            return;
+        }
+
+        let peopleHtml = '';
+        for (const person of data.people) {
+            const displayName = formatPersonName(person);
+            const isUnknown = person.name_source !== 'manual';
+
+            peopleHtml += `
+                <div class="person-card" onclick="router.navigate('/people/${person.id}')">
+                    <div class="person-avatar ${isUnknown ? 'unknown' : ''}">
+                        ${person.face_url
+                            ? `<img src="${API_BASE}${person.face_url}" alt="" style="${person.face_box ? getFaceCropStyle(person.face_box) : ''}">`
+                            : '👤'}
+                    </div>
+                    <div class="person-info">
+                        <span class="person-name ${isUnknown ? 'unknown' : ''}">${displayName}</span>
+                        <span class="person-count">${person.photo_count} photos</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        $('#people-grid').innerHTML += peopleHtml;
+        peopleOffset += data.people.length;
+
+        $('#load-more-people').style.display = data.has_more ? 'block' : 'none';
+    } catch (err) {
+        html($('#people-grid'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+async function loadMorePeople() {
+    await loadPeople();
+}
+
+async function loadGroups() {
+    try {
+        const data = await api.get(`/api/v1/people/groups?limit=${PEOPLE_LIMIT}&offset=${groupsOffset}`);
+        groupsTotal = data.total;
+
+        if (data.groups.length === 0 && groupsOffset === 0) {
+            return; // No groups, hide section
+        }
+
+        $('#groups-section').style.display = 'block';
+        $('#groups-count').textContent = `(${groupsTotal})`;
+
+        if (groupsOffset === 0) {
+            html($('#groups-grid'), '');
+        }
+
+        let groupsHtml = '';
+        for (const group of data.groups) {
+            const displayName = formatGroupNames(group.names, group.person_ids);
+            const idsParam = group.person_ids.join(',');
+
+            groupsHtml += `
+                <div class="group-card" onclick="router.navigate('/people/group?ids=${idsParam}')">
+                    <div class="group-avatars">
+                        ${group.face_urls.slice(0, 3).map(url =>
+                            url ? `<img src="${API_BASE}${url}" alt="">` : '<span class="no-face">👤</span>'
+                        ).join('')}
+                        ${group.person_ids.length > 3 ? `<span class="more-faces">+${group.person_ids.length - 3}</span>` : ''}
+                    </div>
+                    <div class="group-info">
+                        <span class="group-name">${displayName}</span>
+                        <span class="group-count">${group.photo_count} photos</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        $('#groups-grid').innerHTML += groupsHtml;
+        groupsOffset += data.groups.length;
+
+        $('#load-more-groups').style.display = data.has_more ? 'block' : 'none';
+    } catch (err) {
+        console.error('Failed to load groups:', err);
+    }
+}
+
+async function loadMoreGroups() {
+    await loadGroups();
+}
+
+function getFaceCropStyle(box) {
+    // Calculate transform to center and zoom on face
+    const scale = 1 / Math.max(box.w, box.h) * 0.8;
+    const translateX = (0.5 - (box.x + box.w / 2)) * 100;
+    const translateY = (0.5 - (box.y + box.h / 2)) * 100;
+    return `transform: scale(${scale}) translate(${translateX}%, ${translateY}%);`;
+}
+
+// =============================================================================
+// Person View
+// =============================================================================
+
+async function renderPersonView(personId) {
+    currentPersonId = personId;
+    currentPersonPhotos = [];
+    personNextCursor = null;
+    personHasMore = false;
+    viewingHidden = false;
+
+    html($('#app'), renderHeader('people') + `
+        <div class="container">
+            <div class="person-header" id="person-header">Loading...</div>
+            <div class="person-tabs">
+                <button class="tab-btn active" id="tab-photos" onclick="switchPersonTab('photos')">Photos</button>
+                <button class="tab-btn" id="tab-hidden" onclick="switchPersonTab('hidden')">Hidden</button>
+                <button class="tab-btn" id="tab-faces" onclick="switchPersonTab('faces')">Faces</button>
+            </div>
+            <div class="photo-grid" id="person-photos">Loading...</div>
+            <div class="loading-more" id="loading-more" style="display:none">Loading more...</div>
+        </div>
+    `);
+
+    try {
+        const person = await api.get(`/api/v1/people/${personId}`);
+        renderPersonHeader(person);
+        await loadPersonPhotos();
+        setupPersonInfiniteScroll();
+    } catch (err) {
+        html($('#person-header'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+function renderPersonHeader(person) {
+    const displayName = formatPersonName(person);
+    const isUnknown = person.name_source !== 'manual';
+
+    html($('#person-header'), `
+        <div class="person-header-content">
+            <button class="back-btn" onclick="router.navigate('/people')">← Back</button>
+            <div class="person-header-info">
+                <div class="person-avatar-large ${isUnknown ? 'unknown' : ''}">
+                    ${person.face_url
+                        ? `<img src="${API_BASE}${person.face_url}" alt="" style="${person.face_box ? getFaceCropStyle(person.face_box) : ''}">`
+                        : '👤'}
+                </div>
+                <div>
+                    <h2 class="${isUnknown ? 'unknown-name' : ''}">${displayName}</h2>
+                    <p>${person.photo_count} photos · ${person.faces_count} face${person.faces_count !== 1 ? 's' : ''}</p>
+                </div>
+            </div>
+            <div class="person-actions">
+                <button onclick="showRenamePersonModal('${person.id}', '${person.name.replace(/'/g, "\\'")}')">✏️ Rename</button>
+                <button onclick="showMergePersonModal('${person.id}')">🔗 Merge</button>
+                <button onclick="showPersonFaces('${person.id}')">👤 Faces</button>
+                <button class="danger" onclick="deletePerson('${person.id}')">🗑️ Delete</button>
+            </div>
+        </div>
+    `);
+}
+
+async function loadPersonPhotos() {
+    const endpoint = viewingHidden
+        ? `/api/v1/people/${currentPersonId}/photos/hidden`
+        : `/api/v1/people/${currentPersonId}/photos`;
+
+    const url = personNextCursor
+        ? `${endpoint}?limit=100&cursor=${personNextCursor}`
+        : `${endpoint}?limit=100`;
+
+    try {
+        const data = await api.get(url);
+
+        if (personNextCursor === null) {
+            currentPersonPhotos = data.photos;
+        } else {
+            currentPersonPhotos = [...currentPersonPhotos, ...data.photos];
+        }
+
+        personNextCursor = data.next_cursor || null;
+        personHasMore = data.has_more;
+
+        renderPersonPhotos();
+    } catch (err) {
+        html($('#person-photos'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+function renderPersonPhotos() {
+    if (currentPersonPhotos.length === 0) {
+        html($('#person-photos'), `<p class="empty-message">${viewingHidden ? 'No hidden photos' : 'No photos'}</p>`);
+        return;
+    }
+
+    let photosHtml = '';
+    for (let i = 0; i < currentPersonPhotos.length; i++) {
+        const photo = currentPersonPhotos[i];
+        photosHtml += `
+            <div class="photo-item" onclick="openPersonPhoto(${i})">
+                <img src="${API_BASE}${photo.small}" alt="" loading="lazy">
+                ${photo.is_favorite ? '<span class="favorite-badge">⭐</span>' : ''}
+                ${photo.duration ? `<span class="duration-badge">${formatDuration(photo.duration)}</span>` : ''}
+            </div>
+        `;
+    }
+
+    html($('#person-photos'), photosHtml);
+}
+
+function setupPersonInfiniteScroll() {
+    window.onscroll = async () => {
+        if (personLoadingMore || !personHasMore) return;
+
+        const scrollPos = window.innerHeight + window.scrollY;
+        const threshold = document.body.offsetHeight - 500;
+
+        if (scrollPos >= threshold) {
+            personLoadingMore = true;
+            $('#loading-more').style.display = 'block';
+
+            await loadPersonPhotos();
+
+            $('#loading-more').style.display = 'none';
+            personLoadingMore = false;
+        }
+    };
+}
+
+async function switchPersonTab(tab) {
+    $$('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    $(`#tab-${tab}`).classList.add('active');
+
+    if (tab === 'photos') {
+        viewingHidden = false;
+        $('#person-photos').style.display = 'grid';
+        personNextCursor = null;
+        await loadPersonPhotos();
+    } else if (tab === 'hidden') {
+        viewingHidden = true;
+        $('#person-photos').style.display = 'grid';
+        personNextCursor = null;
+        await loadPersonPhotos();
+    } else if (tab === 'faces') {
+        await showPersonFaces(currentPersonId);
+    }
+}
+
+function openPersonPhoto(index) {
+    currentPhotos = currentPersonPhotos;
+    openPhotoModal(index);
+}
+
+// =============================================================================
+// Group View
+// =============================================================================
+
+async function renderGroupView() {
+    const params = new URLSearchParams(location.search);
+    const ids = params.get('ids');
+
+    if (!ids) {
+        router.navigate('/people');
+        return;
+    }
+
+    currentGroupIds = ids.split(',');
+    currentPersonPhotos = [];
+    personNextCursor = null;
+    personHasMore = false;
+    viewingHidden = false;
+
+    html($('#app'), renderHeader('people') + `
+        <div class="container">
+            <div class="group-header" id="group-header">Loading...</div>
+            <div class="person-tabs">
+                <button class="tab-btn active" id="tab-photos" onclick="switchGroupTab('photos')">Photos</button>
+                <button class="tab-btn" id="tab-hidden" onclick="switchGroupTab('hidden')">Hidden</button>
+            </div>
+            <div class="photo-grid" id="person-photos">Loading...</div>
+            <div class="loading-more" id="loading-more" style="display:none">Loading more...</div>
+        </div>
+    `);
+
+    try {
+        // Get person names
+        const names = [];
+        for (const id of currentGroupIds) {
+            const person = await api.get(`/api/v1/people/${id}`);
+            names.push(person.name_source === 'manual' ? person.name : null);
+        }
+
+        const displayName = formatGroupNames(names, currentGroupIds);
+
+        html($('#group-header'), `
+            <div class="person-header-content">
+                <button class="back-btn" onclick="router.navigate('/people')">← Back</button>
+                <div class="person-header-info">
+                    <div class="group-avatars-large">
+                        ${currentGroupIds.slice(0, 3).map(() => '<span>👤</span>').join('')}
+                    </div>
+                    <div>
+                        <h2>${displayName}</h2>
+                        <p>Photos together</p>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        await loadGroupPhotos();
+        setupPersonInfiniteScroll();
+    } catch (err) {
+        html($('#group-header'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+async function loadGroupPhotos() {
+    const idsParam = currentGroupIds.join(',');
+    const endpoint = viewingHidden
+        ? `/api/v1/people/groups/photos/hidden?ids=${idsParam}`
+        : `/api/v1/people/groups/photos?ids=${idsParam}`;
+
+    const url = personNextCursor
+        ? `${endpoint}&limit=100&cursor=${personNextCursor}`
+        : `${endpoint}&limit=100`;
+
+    try {
+        const data = await api.get(url);
+
+        if (personNextCursor === null) {
+            currentPersonPhotos = data.photos;
+        } else {
+            currentPersonPhotos = [...currentPersonPhotos, ...data.photos];
+        }
+
+        personNextCursor = data.next_cursor || null;
+        personHasMore = data.has_more;
+
+        renderPersonPhotos();
+    } catch (err) {
+        html($('#person-photos'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+async function switchGroupTab(tab) {
+    $$('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    $(`#tab-${tab}`).classList.add('active');
+
+    viewingHidden = tab === 'hidden';
+    personNextCursor = null;
+    await loadGroupPhotos();
+}
+
+// =============================================================================
+// Person Management Modals
+// =============================================================================
+
+function showRenamePersonModal(personId, currentName) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3>Rename Person</h3>
+            <input type="text" id="person-name-input" value="${currentName.startsWith('Unknown') ? '' : currentName}" placeholder="Enter name">
+            <div class="modal-buttons">
+                <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                <button onclick="renamePerson('${personId}')">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    $('#person-name-input').focus();
+    $('#person-name-input').select();
+}
+
+async function renamePerson(personId) {
+    const name = $('#person-name-input').value.trim();
+    if (!name) {
+        alert('Please enter a name');
+        return;
+    }
+
+    try {
+        await api.patch(`/api/v1/people/${personId}`, { name });
+        $('.modal-overlay').remove();
+        renderPersonView(personId);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function showMergePersonModal(personId) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+        <div class="modal-content modal-large">
+            <h3>Merge with Another Person</h3>
+            <p>Select people to merge into this person:</p>
+            <div class="merge-people-list" id="merge-people-list">Loading...</div>
+            <div class="modal-buttons">
+                <button onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                <button onclick="mergeSelectedPersons('${personId}')">Merge Selected</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    loadMergeCandidates(personId);
+}
+
+async function loadMergeCandidates(currentPersonId) {
+    try {
+        const data = await api.get('/api/v1/people?limit=100&offset=0');
+        const others = data.people.filter(p => p.id !== currentPersonId);
+
+        if (others.length === 0) {
+            html($('#merge-people-list'), '<p>No other people to merge with</p>');
+            return;
+        }
+
+        let listHtml = '';
+        for (const person of others) {
+            const displayName = formatPersonName(person);
+            listHtml += `
+                <label class="merge-person-item">
+                    <input type="checkbox" value="${person.id}">
+                    <div class="person-avatar-small">
+                        ${person.face_url ? `<img src="${API_BASE}${person.face_url}" alt="">` : '👤'}
+                    </div>
+                    <span>${displayName}</span>
+                    <span class="photo-count">${person.photo_count}</span>
+                </label>
+            `;
+        }
+
+        html($('#merge-people-list'), listHtml);
+    } catch (err) {
+        html($('#merge-people-list'), `<p class="error">Error: ${err.message}</p>`);
+    }
+}
+
+async function mergeSelectedPersons(targetId) {
+    const checkboxes = $$('#merge-people-list input:checked');
+    const sourceIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (sourceIds.length === 0) {
+        alert('Select at least one person to merge');
+        return;
+    }
+
+    sourceIds.push(targetId); // Include target in source_ids
+
+    try {
+        const result = await api.post('/api/v1/people/merge', {
+            source_ids: sourceIds,
+            target_id: targetId
+        });
+
+        alert(`Merged ${result.merged_count} person(s), moved ${result.faces_moved} face(s)`);
+        $('.modal-overlay').remove();
+        renderPersonView(targetId);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function showPersonFaces(personId) {
+    try {
+        const data = await api.get(`/api/v1/people/${personId}/faces`);
+
+        if (data.faces.length <= 1) {
+            alert('This person has only one face. Nothing to manage.');
+            return;
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+        let facesHtml = '';
+        for (const face of data.faces) {
+            facesHtml += `
+                <div class="face-item">
+                    <div class="face-preview">
+                        <img src="${API_BASE}${face.preview_url}" alt="" style="${getFaceCropStyle(face.preview_box)}">
+                    </div>
+                    <span>${face.photo_count} photos</span>
+                    <button class="small danger" onclick="detachFace('${personId}', '${face.id}')">Detach</button>
+                </div>
+            `;
+        }
+
+        modal.innerHTML = `
+            <div class="modal-content modal-large">
+                <h3>Manage Faces</h3>
+                <p>This person has ${data.faces.length} different face embeddings. You can detach a face to create a new person.</p>
+                <div class="faces-grid">${facesHtml}</div>
+                <div class="modal-buttons">
+                    <button onclick="this.closest('.modal-overlay').remove()">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function detachFace(personId, faceId) {
+    if (!confirm('Detach this face? A new person will be created.')) return;
+
+    try {
+        const result = await api.delete(`/api/v1/people/${personId}/faces/${faceId}`);
+        alert(`Face detached. New person created: ${result.new_person_id}`);
+        $('.modal-overlay').remove();
+        renderPersonView(personId);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function deletePerson(personId) {
+    if (!confirm('Delete this person? Photos will be kept but face data will be removed.')) return;
+
+    try {
+        await api.delete(`/api/v1/people/${personId}`);
+        router.navigate('/people');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
 // Setup routes
 router.add('/login', renderLogin);
 router.add('/', renderGallery);
 router.add('/albums', renderAlbums);
 router.add('/albums/:id', renderAlbumView);
+router.add('/people', renderPeople);
+router.add('/people/group', renderGroupView);
+router.add('/people/:id', renderPersonView);
 router.add('/map', renderMap);
 router.add('/shares', renderShares);
 router.add('/stats', renderStats);
