@@ -57,6 +57,11 @@ func NotFound(w http.ResponseWriter, message string) {
 	Error(w, http.StatusNotFound, message)
 }
 
+// Conflict writes a 409 error response.
+func Conflict(w http.ResponseWriter, message string) {
+	Error(w, http.StatusConflict, message)
+}
+
 // Gone writes a 410 error response (for expired shares).
 func Gone(w http.ResponseWriter, message string) {
 	Error(w, http.StatusGone, message)
