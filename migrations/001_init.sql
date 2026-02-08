@@ -44,21 +44,62 @@ CREATE TABLE places (
 );
 
 -- ============================================
--- AI TAGS
--- People, objects, and scenes detected by AI
+-- PERSONS
+-- People identified by AI face recognition
+-- One person can have multiple face embeddings (different ages, angles, etc.)
 -- ============================================
-CREATE TABLE ai_tags (
-    id TEXT PRIMARY KEY,                          -- 'person_abc123', 'object_beach', 'scene_sunset'
-
-    -- Tag type
-    type TEXT NOT NULL,                           -- 'person' / 'object' / 'scene'
+CREATE TABLE persons (
+    id TEXT PRIMARY KEY,                          -- 'person_abc123'
 
     -- Name
-    name TEXT NOT NULL,                           -- 'Unknown 1' → 'Марина' / 'beach' / 'sunset'
+    name TEXT NOT NULL,                           -- 'Unknown 1' → 'Эдуард'
     name_source TEXT NOT NULL DEFAULT 'auto',     -- 'auto' / 'manual'
 
-    -- For 'person' type: reference face embedding for matching
-    embedding REAL[],                             -- 512 float values from ArcFace
+    -- Cover face for preview (user-selected or auto-first)
+    cover_face_id TEXT,                           -- FK added after photo_faces table created
+
+    -- Statistics (denormalized for performance)
+    photo_count INT NOT NULL DEFAULT 0,           -- number of photos with this person
+
+    -- Timestamps
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================
+-- FACES
+-- Face embeddings belonging to a person
+-- One person can have 1-100 different face embeddings
+-- ============================================
+CREATE TABLE faces (
+    id TEXT PRIMARY KEY,                          -- 'face_abc123'
+
+    -- Link to person
+    person_id TEXT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+
+    -- Face embedding for matching new faces
+    embedding REAL[] NOT NULL,                    -- 512 float values from ArcFace
+
+    -- Statistics
+    photo_count INT NOT NULL DEFAULT 0,           -- number of photos with this face
+
+    -- Timestamps
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================
+-- AI TAGS
+-- Objects and scenes detected by AI (NOT persons)
+-- ============================================
+CREATE TABLE ai_tags (
+    id TEXT PRIMARY KEY,                          -- 'object_car', 'scene_beach'
+
+    -- Tag type
+    type TEXT NOT NULL,                           -- 'object' / 'scene'
+
+    -- Name
+    name TEXT NOT NULL,                           -- 'car' / 'beach' / 'sunset'
 
     -- Statistics (denormalized for performance)
     photo_count INT NOT NULL DEFAULT 0,           -- number of photos with this tag
@@ -68,7 +109,7 @@ CREATE TABLE ai_tags (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Constraints
-    CONSTRAINT valid_ai_tag_type CHECK (type IN ('person', 'object', 'scene'))
+    CONSTRAINT valid_ai_tag_type CHECK (type IN ('object', 'scene'))
 );
 
 -- ============================================
@@ -134,7 +175,7 @@ CREATE TABLE photos (
 
     -- AI processing results
     ai_processed_at TIMESTAMP,                    -- when AI processing completed, NULL = not processed
-    ai_person_ids TEXT[],                         -- ['person_abc', 'person_def'] - persons detected in photo
+    ai_person_ids TEXT[],                         -- ['person_abc', 'person_def'] - references to persons table
     ai_faces_count INT GENERATED ALWAYS AS (coalesce(array_length(ai_person_ids, 1), 0)) STORED,  -- number of faces (computed)
 
     -- AI OCR results
@@ -196,29 +237,62 @@ CREATE TABLE album_photos (
 );
 
 -- ============================================
--- PHOTO <-> AI TAG RELATIONSHIP
--- Stores detected faces/objects with coordinates
+-- PHOTO <-> FACE RELATIONSHIP
+-- Stores detected faces with bounding boxes
 -- ============================================
-CREATE TABLE photo_ai_tags (
-    id TEXT PRIMARY KEY,                          -- unique ID for this detection
+CREATE TABLE photo_faces (
+    id TEXT PRIMARY KEY,                          -- 'pface_abc123'
+
+    photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    face_id TEXT NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+
+    -- Bounding box coordinates (relative 0.0-1.0)
+    box_x REAL NOT NULL,                          -- x position (left edge)
+    box_y REAL NOT NULL,                          -- y position (top edge)
+    box_w REAL NOT NULL,                          -- width
+    box_h REAL NOT NULL,                          -- height
+
+    -- Face embedding for this specific detection
+    embedding REAL[] NOT NULL,                    -- 512 float values from ArcFace
+
+    -- Detection confidence
+    confidence REAL,                              -- 0.0-1.0
+
+    -- Hidden from person's photo list (but AI data preserved)
+    hidden BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- Timestamp
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================
+-- PHOTO <-> AI TAG RELATIONSHIP
+-- Stores detected objects and scenes
+-- ============================================
+CREATE TABLE photo_tags (
+    id TEXT PRIMARY KEY,                          -- 'ptag_abc123'
 
     photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
     tag_id TEXT NOT NULL REFERENCES ai_tags(id) ON DELETE CASCADE,
-
-    -- Bounding box coordinates (relative 0.0-1.0, for faces)
-    box_x REAL,                                   -- x position (left edge)
-    box_y REAL,                                   -- y position (top edge)
-    box_w REAL,                                   -- width
-    box_h REAL,                                   -- height
-
-    -- Face embedding for this specific detection (for matching)
-    embedding REAL[],                             -- 512 float values
 
     -- Detection confidence
     confidence REAL,                              -- 0.0-1.0
 
     -- Timestamp
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================
+-- HIDDEN GROUP PHOTOS
+-- Photos hidden from people group views
+-- ============================================
+CREATE TABLE hidden_group_photos (
+    person_ids TEXT[] NOT NULL,                   -- sorted array of person IDs
+    photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+
+    hidden_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (person_ids, photo_id)
 );
 
 -- ============================================
@@ -347,13 +421,28 @@ CREATE INDEX idx_photos_ai_quality ON photos(ai_quality_score DESC) WHERE ai_qua
 CREATE INDEX idx_places_gps ON places(gps_lat, gps_lon);                         -- find nearest place
 CREATE INDEX idx_places_country_city ON places(country, city);                   -- filter by country/city
 
+-- Persons
+CREATE INDEX idx_persons_name ON persons(name);                                  -- search by name
+CREATE INDEX idx_persons_photo_count ON persons(photo_count DESC);               -- sort by photo count
+
+-- Faces
+CREATE INDEX idx_faces_person ON faces(person_id);                               -- faces for person
+
 -- AI Tags
 CREATE INDEX idx_ai_tags_type ON ai_tags(type);                                  -- filter by type
 CREATE INDEX idx_ai_tags_name ON ai_tags(name);                                  -- search by name
 
--- Photo AI Tags
-CREATE INDEX idx_photo_ai_tags_photo ON photo_ai_tags(photo_id);                 -- tags for photo
-CREATE INDEX idx_photo_ai_tags_tag ON photo_ai_tags(tag_id);                     -- photos with tag
+-- Photo Faces
+CREATE INDEX idx_photo_faces_photo ON photo_faces(photo_id);                     -- faces on photo
+CREATE INDEX idx_photo_faces_face ON photo_faces(face_id);                       -- photos with face
+CREATE INDEX idx_photo_faces_hidden ON photo_faces(photo_id) WHERE hidden = TRUE; -- hidden faces
+
+-- Photo Tags
+CREATE INDEX idx_photo_tags_photo ON photo_tags(photo_id);                       -- tags for photo
+CREATE INDEX idx_photo_tags_tag ON photo_tags(tag_id);                           -- photos with tag
+
+-- Hidden Group Photos
+CREATE INDEX idx_hidden_group_photos_ids ON hidden_group_photos USING GIN (person_ids);  -- find by person combo
 
 -- AI Queue
 CREATE INDEX idx_ai_queue_status ON ai_queue(status, priority DESC, created_at); -- get next to process
@@ -380,6 +469,35 @@ CREATE INDEX idx_events_id_created ON events(id, created_at);                   
 -- Processing state
 CREATE INDEX idx_processing_state_status ON processing_state(status);
 CREATE INDEX idx_processing_state_created ON processing_state(created_at);
+
+-- ============================================
+-- FOREIGN KEY CONSTRAINTS (added after all tables created)
+-- ============================================
+
+-- Add FK for persons.cover_face_id after photo_faces exists
+ALTER TABLE persons
+    ADD CONSTRAINT fk_persons_cover_face
+    FOREIGN KEY (cover_face_id) REFERENCES photo_faces(id) ON DELETE SET NULL;
+
+-- ============================================
+-- MATERIALIZED VIEW: People Groups
+-- Groups of 2+ persons appearing together in photos
+-- Refreshed periodically for performance at 1M+ photos
+-- ============================================
+CREATE MATERIALIZED VIEW people_groups AS
+SELECT
+    (SELECT array_agg(pid ORDER BY pid) FROM unnest(ai_person_ids) AS pid) AS person_ids,
+    COUNT(*) AS photo_count
+FROM photos
+WHERE ai_person_ids IS NOT NULL
+  AND array_length(ai_person_ids, 1) >= 2
+  AND status = 'ready'
+GROUP BY (SELECT array_agg(pid ORDER BY pid) FROM unnest(ai_person_ids) AS pid)
+ORDER BY photo_count DESC;
+
+-- Index for fast lookups
+CREATE INDEX idx_people_groups_ids ON people_groups USING GIN (person_ids);
+CREATE INDEX idx_people_groups_count ON people_groups(photo_count DESC);
 
 -- ============================================
 -- FUNCTIONS
@@ -429,14 +547,49 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to update ai_tag photo_count
+-- Function to update face and person photo_count when photo_faces changes
+CREATE OR REPLACE FUNCTION update_face_photo_count()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_person_id TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- Increment face photo_count
+        UPDATE faces SET photo_count = photo_count + 1, updated_at = NOW() WHERE id = NEW.face_id;
+        -- Increment person photo_count (only if this is first face of this person on this photo)
+        SELECT person_id INTO v_person_id FROM faces WHERE id = NEW.face_id;
+        IF NOT EXISTS (
+            SELECT 1 FROM photo_faces pf
+            JOIN faces f ON f.id = pf.face_id
+            WHERE pf.photo_id = NEW.photo_id AND f.person_id = v_person_id AND pf.id != NEW.id
+        ) THEN
+            UPDATE persons SET photo_count = photo_count + 1, updated_at = NOW() WHERE id = v_person_id;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Decrement face photo_count
+        UPDATE faces SET photo_count = photo_count - 1, updated_at = NOW() WHERE id = OLD.face_id;
+        -- Decrement person photo_count (only if this was last face of this person on this photo)
+        SELECT person_id INTO v_person_id FROM faces WHERE id = OLD.face_id;
+        IF v_person_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM photo_faces pf
+            JOIN faces f ON f.id = pf.face_id
+            WHERE pf.photo_id = OLD.photo_id AND f.person_id = v_person_id AND pf.id != OLD.id
+        ) THEN
+            UPDATE persons SET photo_count = photo_count - 1, updated_at = NOW() WHERE id = v_person_id;
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to update ai_tag photo_count when photo_tags changes
 CREATE OR REPLACE FUNCTION update_ai_tag_photo_count()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Increment only if this is the first occurrence of this tag on this photo
         IF NOT EXISTS (
-            SELECT 1 FROM photo_ai_tags
+            SELECT 1 FROM photo_tags
             WHERE photo_id = NEW.photo_id AND tag_id = NEW.tag_id AND id != NEW.id
         ) THEN
             UPDATE ai_tags SET photo_count = photo_count + 1, updated_at = NOW() WHERE id = NEW.tag_id;
@@ -444,7 +597,7 @@ BEGIN
     ELSIF TG_OP = 'DELETE' THEN
         -- Decrement only if this was the last occurrence of this tag on this photo
         IF NOT EXISTS (
-            SELECT 1 FROM photo_ai_tags
+            SELECT 1 FROM photo_tags
             WHERE photo_id = OLD.photo_id AND tag_id = OLD.tag_id AND id != OLD.id
         ) THEN
             UPDATE ai_tags SET photo_count = photo_count - 1, updated_at = NOW() WHERE id = OLD.tag_id;
@@ -546,6 +699,18 @@ CREATE TRIGGER ai_tags_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Auto-update updated_at for persons
+CREATE TRIGGER persons_updated_at
+    BEFORE UPDATE ON persons
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Auto-update updated_at for faces
+CREATE TRIGGER faces_updated_at
+    BEFORE UPDATE ON faces
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Auto-update album photo_count
 CREATE TRIGGER album_photos_count_trigger
     AFTER INSERT OR DELETE ON album_photos
@@ -558,9 +723,15 @@ CREATE TRIGGER photos_place_count_trigger
     FOR EACH ROW
     EXECUTE FUNCTION update_place_photo_count();
 
+-- Auto-update face and person photo_count
+CREATE TRIGGER photo_faces_count_trigger
+    AFTER INSERT OR DELETE ON photo_faces
+    FOR EACH ROW
+    EXECUTE FUNCTION update_face_photo_count();
+
 -- Auto-update ai_tag photo_count
-CREATE TRIGGER photo_ai_tags_count_trigger
-    AFTER INSERT OR DELETE ON photo_ai_tags
+CREATE TRIGGER photo_tags_count_trigger
+    AFTER INSERT OR DELETE ON photo_tags
     FOR EACH ROW
     EXECUTE FUNCTION update_ai_tag_photo_count();
 
@@ -616,10 +787,14 @@ INSERT INTO settings (key, value, updated_at) VALUES
 
 COMMENT ON TABLE photos IS 'Main table storing all photo and video metadata. Files are stored on disk in /media/{id[0:2]}/{id[2:4]}/{id}_{size}.webp';
 COMMENT ON TABLE places IS 'Geographic locations for grouping photos. Created automatically during GPS processing or manually by user';
-COMMENT ON TABLE ai_tags IS 'AI-detected tags: persons (faces), objects, and scenes';
+COMMENT ON TABLE persons IS 'People identified by AI face recognition. One person can have multiple face embeddings';
+COMMENT ON TABLE faces IS 'Face embeddings belonging to a person. One person can have 1-100 different face embeddings (different ages, angles)';
+COMMENT ON TABLE ai_tags IS 'AI-detected tags: objects (car, dog) and scenes (beach, mountain). NOT persons - those are in persons table';
 COMMENT ON TABLE albums IS 'Photo collections. Includes system album "favorites" and auto-generated place albums';
 COMMENT ON TABLE album_photos IS 'Many-to-many relationship between albums and photos with ordering support';
-COMMENT ON TABLE photo_ai_tags IS 'Links photos to AI tags with bounding box coordinates for faces and confidence scores';
+COMMENT ON TABLE photo_faces IS 'Links photos to detected faces with bounding box coordinates and embeddings';
+COMMENT ON TABLE photo_tags IS 'Links photos to AI tags (objects/scenes) with confidence scores';
+COMMENT ON TABLE hidden_group_photos IS 'Photos hidden from people group views. Preserves AI data but excludes from display';
 COMMENT ON TABLE ai_queue IS 'Queue for AI processing. Photos are added when ready and processed in priority order';
 COMMENT ON TABLE shares IS 'Public sharing links for photos and albums with optional password protection and expiration';
 COMMENT ON TABLE events IS 'Event log for real-time updates via SSE. Clients poll this table for changes';
@@ -630,20 +805,25 @@ COMMENT ON COLUMN photos.id IS 'SHA256 hash first 12 characters. Used to constru
 COMMENT ON COLUMN photos.blurhash IS 'BlurHash string for instant low-quality placeholder while full image loads';
 COMMENT ON COLUMN photos.status IS 'Processing status: processing (being processed), ready (available for viewing), error (processing failed)';
 COMMENT ON COLUMN photos.ai_processed_at IS 'Timestamp when AI processing completed. NULL means not yet processed by AI';
-COMMENT ON COLUMN photos.ai_person_ids IS 'Array of person IDs detected in this photo. Used for fast filtering and search';
-COMMENT ON COLUMN photos.ai_faces_count IS 'Computed column: number of faces detected (length of ai_person_ids array)';
+COMMENT ON COLUMN photos.ai_person_ids IS 'Array of person IDs detected in this photo. References persons table';
+COMMENT ON COLUMN photos.ai_faces_count IS 'Computed column: number of unique persons detected (length of ai_person_ids array)';
 COMMENT ON COLUMN photos.ai_ocr_text IS 'Text recognized by OCR from the photo';
 COMMENT ON COLUMN photos.ai_ocr_date IS 'Date extracted from OCR text, typically from old photos with printed timestamps';
 
 COMMENT ON COLUMN places.name_source IS 'How the name was determined: auto (from Nominatim reverse geocoding) or manual (user renamed)';
 COMMENT ON COLUMN places.radius_m IS 'Radius in meters for clustering nearby photos into this place';
 
-COMMENT ON COLUMN ai_tags.type IS 'Tag type: person (individual face), object (car, dog), scene (beach, mountain)';
-COMMENT ON COLUMN ai_tags.embedding IS 'For person type only: 512-dimensional face embedding for matching new faces';
+COMMENT ON COLUMN persons.name IS 'Person name. Initially auto-generated as "Unknown N", can be changed by user';
+COMMENT ON COLUMN persons.cover_face_id IS 'Reference to photo_faces for preview. User-selected or auto-first';
 
-COMMENT ON COLUMN photo_ai_tags.box_x IS 'Relative X coordinate (0.0-1.0) of bounding box left edge';
-COMMENT ON COLUMN photo_ai_tags.box_y IS 'Relative Y coordinate (0.0-1.0) of bounding box top edge';
-COMMENT ON COLUMN photo_ai_tags.box_w IS 'Relative width (0.0-1.0) of bounding box';
-COMMENT ON COLUMN photo_ai_tags.box_h IS 'Relative height (0.0-1.0) of bounding box';
+COMMENT ON COLUMN faces.embedding IS '512-dimensional face embedding from ArcFace for matching new faces';
+
+COMMENT ON COLUMN ai_tags.type IS 'Tag type: object (car, dog) or scene (beach, mountain)';
+
+COMMENT ON COLUMN photo_faces.box_x IS 'Relative X coordinate (0.0-1.0) of bounding box left edge';
+COMMENT ON COLUMN photo_faces.box_y IS 'Relative Y coordinate (0.0-1.0) of bounding box top edge';
+COMMENT ON COLUMN photo_faces.box_w IS 'Relative width (0.0-1.0) of bounding box';
+COMMENT ON COLUMN photo_faces.box_h IS 'Relative height (0.0-1.0) of bounding box';
+COMMENT ON COLUMN photo_faces.hidden IS 'If TRUE, face is hidden from person photo list but AI data preserved';
 
 COMMENT ON COLUMN processing_state.worker_id IS 'Identifier of the worker processing this file, for debugging concurrent processing issues';
