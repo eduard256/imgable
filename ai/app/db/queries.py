@@ -104,26 +104,38 @@ async def reset_stuck_processing(timeout_minutes: int = 30) -> int:
 
 
 # =============================================================================
-# AI Tags Operations
+# Person and Face Operations
 # =============================================================================
 
-async def get_or_create_person_tag(
+async def get_or_create_person(
     embedding: List[float],
     threshold: float = 0.6
-) -> tuple[str, bool]:
+) -> tuple[str, str, bool]:
     """
-    Find existing person by embedding similarity or create new one.
-    Returns (person_id, is_new).
+    Find existing face by embedding similarity or create new person and face.
+
+    Returns (person_id, face_id, is_new_person).
+
+    Logic:
+    1. Get all face embeddings from faces table
+    2. Find closest match by cosine distance
+    3. If match found (distance < threshold):
+       - Return existing person_id, face_id, is_new=False
+    4. If no match:
+       - Create new person in persons table
+       - Create new face in faces table with embedding
+       - Return new person_id, face_id, is_new=True
     """
-    # Find closest existing person
+    # Find closest existing face
     query = """
-        SELECT id, name, embedding
-        FROM ai_tags
-        WHERE type = 'person' AND embedding IS NOT NULL
+        SELECT f.id as face_id, f.person_id, f.embedding
+        FROM faces f
+        WHERE f.embedding IS NOT NULL
     """
     rows = await db.fetch(query)
 
-    best_match_id = None
+    best_face_id = None
+    best_person_id = None
     best_distance = float("inf")
 
     for row in rows:
@@ -131,37 +143,47 @@ async def get_or_create_person_tag(
             distance = cosine_distance(embedding, list(row["embedding"]))
             if distance < best_distance:
                 best_distance = distance
-                best_match_id = row["id"]
+                best_face_id = row["face_id"]
+                best_person_id = row["person_id"]
 
-    # If found similar person
-    if best_match_id and best_distance < threshold:
-        return best_match_id, False
+    # If found similar face, return existing person
+    if best_face_id and best_distance < threshold:
+        return best_person_id, best_face_id, False
 
     # Create new person
     person_id = f"person_{uuid.uuid4().hex[:12]}"
-    person_count = await db.fetchval(
-        "SELECT COUNT(*) FROM ai_tags WHERE type = 'person'"
-    )
+    person_count = await db.fetchval("SELECT COUNT(*) FROM persons")
     name = f"Unknown {person_count + 1}"
 
-    insert_query = """
-        INSERT INTO ai_tags (id, type, name, name_source, embedding, photo_count, created_at, updated_at)
-        VALUES ($1, 'person', $2, 'auto', $3, 0, NOW(), NOW())
+    insert_person_query = """
+        INSERT INTO persons (id, name, name_source, photo_count, created_at, updated_at)
+        VALUES ($1, $2, 'auto', 0, NOW(), NOW())
     """
-    await db.execute(insert_query, person_id, name, embedding)
+    await db.execute(insert_person_query, person_id, name)
 
-    return person_id, True
+    # Create new face with embedding
+    face_id = f"face_{uuid.uuid4().hex[:12]}"
+    insert_face_query = """
+        INSERT INTO faces (id, person_id, embedding, photo_count, created_at, updated_at)
+        VALUES ($1, $2, $3, 0, NOW(), NOW())
+    """
+    await db.execute(insert_face_query, face_id, person_id, embedding)
 
+    return person_id, face_id, True
+
+
+# =============================================================================
+# AI Tags Operations (Objects and Scenes only)
+# =============================================================================
 
 async def get_or_create_object_tag(name: str) -> str:
     """Get or create an object tag."""
     tag_id = f"object_{name.lower().replace(' ', '_')}"
 
     query = """
-        INSERT INTO ai_tags (id, type, name, name_source, photo_count, created_at, updated_at)
-        VALUES ($1, 'object', $2, 'auto', 0, NOW(), NOW())
+        INSERT INTO ai_tags (id, type, name, photo_count, created_at, updated_at)
+        VALUES ($1, 'object', $2, 0, NOW(), NOW())
         ON CONFLICT (id) DO NOTHING
-        RETURNING id
     """
     await db.execute(query, tag_id, name)
 
@@ -173,10 +195,9 @@ async def get_or_create_scene_tag(name: str) -> str:
     tag_id = f"scene_{name.lower().replace(' ', '_')}"
 
     query = """
-        INSERT INTO ai_tags (id, type, name, name_source, photo_count, created_at, updated_at)
-        VALUES ($1, 'scene', $2, 'auto', 0, NOW(), NOW())
+        INSERT INTO ai_tags (id, type, name, photo_count, created_at, updated_at)
+        VALUES ($1, 'scene', $2, 0, NOW(), NOW())
         ON CONFLICT (id) DO NOTHING
-        RETURNING id
     """
     await db.execute(query, tag_id, name)
 
@@ -184,32 +205,75 @@ async def get_or_create_scene_tag(name: str) -> str:
 
 
 # =============================================================================
-# Photo AI Tags Operations
+# Photo Face Operations
 # =============================================================================
 
-async def add_photo_ai_tag(
+async def add_photo_face(
     photo_id: str,
-    tag_id: str,
-    box: Optional[tuple] = None,
-    embedding: Optional[List[float]] = None,
+    face_id: str,
+    box: tuple,
+    embedding: List[float],
     confidence: Optional[float] = None
 ) -> str:
-    """Add a tag to a photo with optional bounding box and embedding."""
-    tag_entry_id = f"ptag_{uuid.uuid4().hex[:12]}"
+    """
+    Add a face detection to a photo.
 
-    box_x, box_y, box_w, box_h = box if box else (None, None, None, None)
+    Args:
+        photo_id: Photo ID
+        face_id: Face ID (references faces table)
+        box: Bounding box (x, y, w, h) as relative coordinates 0-1
+        embedding: 512-dimensional face embedding
+        confidence: Detection confidence 0-1
+
+    Returns:
+        photo_face entry ID
+    """
+    entry_id = f"pface_{uuid.uuid4().hex[:12]}"
+    box_x, box_y, box_w, box_h = box
 
     query = """
-        INSERT INTO photo_ai_tags (id, photo_id, tag_id, box_x, box_y, box_w, box_h, embedding, confidence, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        INSERT INTO photo_faces (id, photo_id, face_id, box_x, box_y, box_w, box_h, embedding, confidence, hidden, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, NOW())
         ON CONFLICT DO NOTHING
     """
     await db.execute(
-        query, tag_entry_id, photo_id, tag_id,
+        query, entry_id, photo_id, face_id,
         box_x, box_y, box_w, box_h, embedding, confidence
     )
 
-    return tag_entry_id
+    return entry_id
+
+
+# =============================================================================
+# Photo Tag Operations
+# =============================================================================
+
+async def add_photo_tag(
+    photo_id: str,
+    tag_id: str,
+    confidence: Optional[float] = None
+) -> str:
+    """
+    Add an object/scene tag to a photo.
+
+    Args:
+        photo_id: Photo ID
+        tag_id: Tag ID (references ai_tags table)
+        confidence: Detection confidence 0-1
+
+    Returns:
+        photo_tag entry ID
+    """
+    entry_id = f"ptag_{uuid.uuid4().hex[:12]}"
+
+    query = """
+        INSERT INTO photo_tags (id, photo_id, tag_id, confidence, created_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT DO NOTHING
+    """
+    await db.execute(query, entry_id, photo_id, tag_id, confidence)
+
+    return entry_id
 
 
 # =============================================================================

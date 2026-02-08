@@ -20,9 +20,9 @@ from app.config import get_settings
 from app.db import (
     db, get_next_pending_photo, mark_queue_done, mark_queue_error,
     get_queue_stats, get_pending_count, reset_stuck_processing,
-    get_or_create_person_tag,
+    get_or_create_person,
     get_or_create_object_tag, get_or_create_scene_tag,
-    add_photo_ai_tag, update_photo_ai_results
+    add_photo_face, add_photo_tag, update_photo_ai_results
 )
 from app.models import model_manager
 from app.processing.face_detector import face_detector, DetectedFace
@@ -152,8 +152,8 @@ class AIWorker:
                     if face.embedding is None:
                         continue
 
-                    # Find or create person
-                    person_id, is_new = await get_or_create_person_tag(
+                    # Find or create person and face
+                    person_id, face_id, is_new = await get_or_create_person(
                         embedding=face.embedding.tolist(),
                         threshold=self._settings.ai_cluster_threshold
                     )
@@ -163,10 +163,10 @@ class AIWorker:
 
                     person_ids.append(person_id)
 
-                    # Add photo-tag relationship with bounding box
-                    await add_photo_ai_tag(
+                    # Add photo-face relationship with bounding box
+                    await add_photo_face(
                         photo_id=photo_id,
-                        tag_id=person_id,
+                        face_id=face_id,
                         box=face.box,
                         embedding=face.embedding.tolist(),
                         confidence=face.confidence
@@ -182,7 +182,7 @@ class AIWorker:
                 else:
                     tag_id = await get_or_create_scene_tag(tag.name)
 
-                await add_photo_ai_tag(
+                await add_photo_tag(
                     photo_id=photo_id,
                     tag_id=tag_id,
                     confidence=tag.confidence
