@@ -18,29 +18,63 @@ logger = logging.getLogger(__name__)
 
 
 # Date patterns commonly found on old photos
+# Ordered by specificity: more specific patterns first to avoid false matches
 DATE_PATTERNS = [
-    # European format: DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY
-    (r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})', 'dmy4'),
-    (r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2})', 'dmy2'),
+    # === 4-digit year formats (most reliable) ===
 
-    # ISO format: YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD
-    (r'(\d{4})[./\-](\d{1,2})[./\-](\d{1,2})', 'ymd'),
+    # ISO format: YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD (with optional time)
+    (r'(\d{4})[./\-](\d{1,2})[./\-](\d{1,2})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?', 'ymd4'),
 
-    # American format: MM/DD/YYYY
-    (r'(\d{1,2})/(\d{1,2})/(\d{4})', 'mdy4'),
+    # European/Russian: DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, DD'MM'YYYY (with optional time)
+    (r'(\d{1,2})[./\-\'\s](\d{1,2})[./\-\'\s](\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?', 'dmy4'),
 
-    # Camera timestamp format: 'YY MM DD or similar
-    (r"['\"]?(\d{2})[./\-\s](\d{1,2})[./\-\s](\d{1,2})", 'ymd_short'),
+    # American: MM/DD/YYYY, MM-DD-YYYY, MM.DD.YYYY
+    (r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})', 'mdy4'),
 
-    # Month name formats: Aug 15 '95, 15 Aug 1995
-    (r'([A-Za-z]{3})\s+(\d{1,2})[,\s]+[\'"]?(\d{2,4})', 'mdy_name'),
+    # === 2-digit year formats ===
+
+    # YY.MM.DD, YY/MM/DD, YY-MM-DD (camera timestamp style)
+    (r"['\"]?(\d{2})[./\-\s](\d{1,2})[./\-\s](\d{1,2})(?:\s+\d{1,2}:\d{2})?", 'ymd2'),
+
+    # DD.MM.YY, DD/MM/YY, DD-MM-YY, DD'MM'YY, DD MM YY (with optional time)
+    (r'(\d{1,2})[./\-\'\s](\d{1,2})[./\-\'\s](\d{2})(?:\s+\d{1,2}:\d{2})?', 'dmy2'),
+
+    # === Compact formats (no separators) ===
+
+    # YYYYMMDD (8 digits, ISO compact)
+    (r'\b(\d{4})(\d{2})(\d{2})\b', 'ymd4_compact'),
+
+    # DDMMYYYY (8 digits, European compact)
+    (r'\b(\d{2})(\d{2})(\d{4})\b', 'dmy4_compact'),
+
+    # DDMMYY (6 digits)
+    (r'\b(\d{2})(\d{2})(\d{2})\b', 'dmy2_compact'),
+
+    # === Text formats with month names ===
+
+    # Full month name: 31 December 1999, December 31, 1999
+    (r'(\d{1,2})\s+([A-Za-z]+)[,\s]+[\'"]?(\d{2,4})', 'dmy_name_full'),
+    (r'([A-Za-z]+)\s+(\d{1,2})[,\s]+[\'"]?(\d{2,4})', 'mdy_name_full'),
+
+    # Short month: 31 Dec 99, Dec 31 '99
     (r'(\d{1,2})\s+([A-Za-z]{3})[,\s]+[\'"]?(\d{2,4})', 'dmy_name'),
+    (r'([A-Za-z]{3})\s+(\d{1,2})[,\s]+[\'"]?(\d{2,4})', 'mdy_name'),
 ]
 
+# Month name mappings (short and full)
 MONTH_NAMES = {
+    # Short names
     'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
     'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
-    'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+    'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+    # Full names
+    'january': 1, 'february': 2, 'march': 3, 'april': 4,
+    'june': 6, 'july': 7, 'august': 8,
+    'september': 9, 'october': 10, 'november': 11, 'december': 12,
+    # Russian month names (transliterated, in case OCR reads them)
+    'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4,
+    'мая': 5, 'май': 5, 'июн': 6, 'июл': 7, 'авг': 8,
+    'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12,
 }
 
 
@@ -105,9 +139,42 @@ class OCRProcessor:
 
         return combined
 
+    def _fix_ocr_errors(self, text: str) -> str:
+        """Fix common OCR misreadings in date strings."""
+        # Common OCR errors: O→0, l/I→1, S→5, B→8
+        replacements = [
+            ('O', '0'), ('o', '0'),
+            ('l', '1'), ('I', '1'), ('|', '1'),
+            ('S', '5'), ('s', '5'),
+            ('B', '8'),
+            ('Z', '2'), ('z', '2'),
+        ]
+        result = text
+        for old, new in replacements:
+            result = result.replace(old, new)
+        return result
+
+    def _convert_year(self, y: int) -> int:
+        """Convert 2-digit year to 4-digit year."""
+        if y < 100:
+            # 00-29 → 2000-2029, 30-99 → 1930-1999
+            return 2000 + y if y < 30 else 1900 + y
+        return y
+
     def _parse_date(self, text: str) -> Optional[date]:
+        """Try to parse a date from text using multiple patterns."""
+        # Try original text first, then OCR-corrected version
+        texts_to_try = [text, self._fix_ocr_errors(text)]
+
+        for txt in texts_to_try:
+            result = self._try_parse_date(txt)
+            if result:
+                return result
+        return None
+
+    def _try_parse_date(self, text: str) -> Optional[date]:
         """Try to parse a date from text."""
-        text = text.upper().strip()
+        text = text.strip()
 
         for pattern, format_type in DATE_PATTERNS:
             match = re.search(pattern, text, re.IGNORECASE)
@@ -116,43 +183,65 @@ class OCRProcessor:
 
             try:
                 groups = match.groups()
+                d, m, y = None, None, None
 
-                if format_type == 'dmy4':
-                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
-                elif format_type == 'dmy2':
-                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
-                    y = 1900 + y if y > 50 else 2000 + y
-                elif format_type == 'ymd':
+                # === 4-digit year formats ===
+                if format_type == 'ymd4':
                     y, m, d = int(groups[0]), int(groups[1]), int(groups[2])
+
+                elif format_type == 'dmy4':
+                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
+
                 elif format_type == 'mdy4':
                     m, d, y = int(groups[0]), int(groups[1]), int(groups[2])
-                elif format_type == 'ymd_short':
+
+                # === 2-digit year formats ===
+                elif format_type == 'ymd2':
                     y, m, d = int(groups[0]), int(groups[1]), int(groups[2])
-                    y = 1900 + y if y > 50 else 2000 + y
-                elif format_type == 'mdy_name':
-                    month_str = groups[0].lower()[:3]
-                    m = MONTH_NAMES.get(month_str)
+                    y = self._convert_year(y)
+
+                elif format_type == 'dmy2':
+                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
+                    y = self._convert_year(y)
+
+                # === Compact formats (no separators) ===
+                elif format_type == 'ymd4_compact':
+                    y, m, d = int(groups[0]), int(groups[1]), int(groups[2])
+
+                elif format_type == 'dmy4_compact':
+                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
+
+                elif format_type == 'dmy2_compact':
+                    d, m, y = int(groups[0]), int(groups[1]), int(groups[2])
+                    y = self._convert_year(y)
+
+                # === Text formats with month names ===
+                elif format_type in ('dmy_name', 'dmy_name_full'):
+                    d = int(groups[0])
+                    month_str = groups[1].lower()
+                    m = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(month_str[:3])
+                    if not m:
+                        continue
+                    y = int(groups[2])
+                    y = self._convert_year(y)
+
+                elif format_type in ('mdy_name', 'mdy_name_full'):
+                    month_str = groups[0].lower()
+                    m = MONTH_NAMES.get(month_str) or MONTH_NAMES.get(month_str[:3])
                     if not m:
                         continue
                     d = int(groups[1])
                     y = int(groups[2])
-                    if y < 100:
-                        y = 1900 + y if y > 50 else 2000 + y
-                elif format_type == 'dmy_name':
-                    d = int(groups[0])
-                    month_str = groups[1].lower()[:3]
-                    m = MONTH_NAMES.get(month_str)
-                    if not m:
-                        continue
-                    y = int(groups[2])
-                    if y < 100:
-                        y = 1900 + y if y > 50 else 2000 + y
+                    y = self._convert_year(y)
+
                 else:
                     continue
 
-                # Validate date
-                if 1 <= d <= 31 and 1 <= m <= 12 and 1900 <= y <= 2100:
-                    return date(y, m, d)
+                # Validate and create date
+                if d and m and y:
+                    if 1 <= d <= 31 and 1 <= m <= 12 and 1900 <= y <= 2100:
+                        # Use date constructor to validate (handles Feb 30 etc)
+                        return date(y, m, d)
 
             except (ValueError, IndexError):
                 continue
