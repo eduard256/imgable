@@ -48,17 +48,14 @@ CREATE TABLE places (
 -- People, objects, and scenes detected by AI
 -- ============================================
 CREATE TABLE ai_tags (
-    id TEXT PRIMARY KEY,                          -- 'person_abc123', 'tag_beach', 'people_abc_def'
+    id TEXT PRIMARY KEY,                          -- 'person_abc123', 'object_beach', 'scene_sunset'
 
     -- Tag type
-    type TEXT NOT NULL,                           -- 'person' / 'people' / 'object' / 'scene'
+    type TEXT NOT NULL,                           -- 'person' / 'object' / 'scene'
 
     -- Name
-    name TEXT NOT NULL,                           -- 'Unknown 1' → 'Марина' / 'Море' / 'Марина + Вадим'
+    name TEXT NOT NULL,                           -- 'Unknown 1' → 'Марина' / 'beach' / 'sunset'
     name_source TEXT NOT NULL DEFAULT 'auto',     -- 'auto' / 'manual'
-
-    -- For 'people' type: array of person IDs that make up this group
-    person_ids TEXT[],                            -- ['person_abc', 'person_def']
 
     -- For 'person' type: reference face embedding for matching
     embedding REAL[],                             -- 512 float values from ArcFace
@@ -71,7 +68,7 @@ CREATE TABLE ai_tags (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Constraints
-    CONSTRAINT valid_ai_tag_type CHECK (type IN ('person', 'people', 'object', 'scene'))
+    CONSTRAINT valid_ai_tag_type CHECK (type IN ('person', 'object', 'scene'))
 );
 
 -- ============================================
@@ -137,7 +134,7 @@ CREATE TABLE photos (
 
     -- AI processing results
     ai_processed_at TIMESTAMP,                    -- when AI processing completed, NULL = not processed
-    ai_person_ids TEXT[],                         -- ['person_abc', 'person_def'] - people detected in photo
+    ai_person_ids TEXT[],                         -- ['person_abc', 'person_def'] - persons detected in photo
     ai_faces_count INT GENERATED ALWAYS AS (coalesce(array_length(ai_person_ids, 1), 0)) STORED,  -- number of faces (computed)
 
     -- AI OCR results
@@ -353,7 +350,6 @@ CREATE INDEX idx_places_country_city ON places(country, city);                  
 -- AI Tags
 CREATE INDEX idx_ai_tags_type ON ai_tags(type);                                  -- filter by type
 CREATE INDEX idx_ai_tags_name ON ai_tags(name);                                  -- search by name
-CREATE INDEX idx_ai_tags_person_ids ON ai_tags USING GIN (person_ids) WHERE person_ids IS NOT NULL;  -- find people groups
 
 -- Photo AI Tags
 CREATE INDEX idx_photo_ai_tags_photo ON photo_ai_tags(photo_id);                 -- tags for photo
@@ -620,7 +616,7 @@ INSERT INTO settings (key, value, updated_at) VALUES
 
 COMMENT ON TABLE photos IS 'Main table storing all photo and video metadata. Files are stored on disk in /media/{id[0:2]}/{id[2:4]}/{id}_{size}.webp';
 COMMENT ON TABLE places IS 'Geographic locations for grouping photos. Created automatically during GPS processing or manually by user';
-COMMENT ON TABLE ai_tags IS 'AI-detected tags: people (faces), people groups, objects, and scenes';
+COMMENT ON TABLE ai_tags IS 'AI-detected tags: persons (faces), objects, and scenes';
 COMMENT ON TABLE albums IS 'Photo collections. Includes system album "favorites" and auto-generated place albums';
 COMMENT ON TABLE album_photos IS 'Many-to-many relationship between albums and photos with ordering support';
 COMMENT ON TABLE photo_ai_tags IS 'Links photos to AI tags with bounding box coordinates for faces and confidence scores';
@@ -642,8 +638,7 @@ COMMENT ON COLUMN photos.ai_ocr_date IS 'Date extracted from OCR text, typically
 COMMENT ON COLUMN places.name_source IS 'How the name was determined: auto (from Nominatim reverse geocoding) or manual (user renamed)';
 COMMENT ON COLUMN places.radius_m IS 'Radius in meters for clustering nearby photos into this place';
 
-COMMENT ON COLUMN ai_tags.type IS 'Tag type: person (individual), people (group combo), object (car, dog), scene (beach, mountain)';
-COMMENT ON COLUMN ai_tags.person_ids IS 'For people type only: array of person IDs that make up this group';
+COMMENT ON COLUMN ai_tags.type IS 'Tag type: person (individual face), object (car, dog), scene (beach, mountain)';
 COMMENT ON COLUMN ai_tags.embedding IS 'For person type only: 512-dimensional face embedding for matching new faces';
 
 COMMENT ON COLUMN photo_ai_tags.box_x IS 'Relative X coordinate (0.0-1.0) of bounding box left edge';

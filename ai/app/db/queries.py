@@ -153,43 +153,6 @@ async def get_or_create_person_tag(
     return person_id, True
 
 
-async def get_or_create_people_tag(person_ids: List[str]) -> str:
-    """
-    Get or create a 'people' tag for a combination of persons.
-    """
-    # Sort for consistent ordering
-    sorted_ids = sorted(person_ids)
-
-    # Check if exists
-    query = """
-        SELECT id FROM ai_tags
-        WHERE type = 'people' AND person_ids = $1
-    """
-    row = await db.fetchrow(query, sorted_ids)
-    if row:
-        return row["id"]
-
-    # Get person names for combined name
-    names_query = """
-        SELECT name FROM ai_tags
-        WHERE id = ANY($1)
-        ORDER BY name
-    """
-    name_rows = await db.fetch(names_query, sorted_ids)
-    combined_name = " + ".join(row["name"] for row in name_rows)
-
-    # Create new people tag
-    people_id = f"people_{uuid.uuid4().hex[:12]}"
-
-    insert_query = """
-        INSERT INTO ai_tags (id, type, name, name_source, person_ids, photo_count, created_at, updated_at)
-        VALUES ($1, 'people', $2, 'auto', $3, 0, NOW(), NOW())
-    """
-    await db.execute(insert_query, people_id, combined_name, sorted_ids)
-
-    return people_id
-
-
 async def get_or_create_object_tag(name: str) -> str:
     """Get or create an object tag."""
     tag_id = f"object_{name.lower().replace(' ', '_')}"

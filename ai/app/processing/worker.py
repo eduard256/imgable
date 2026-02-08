@@ -20,7 +20,7 @@ from app.config import get_settings
 from app.db import (
     db, get_next_pending_photo, mark_queue_done, mark_queue_error,
     get_queue_stats, get_pending_count, reset_stuck_processing,
-    get_or_create_person_tag, get_or_create_people_tag,
+    get_or_create_person_tag,
     get_or_create_object_tag, get_or_create_scene_tag,
     add_photo_ai_tag, update_photo_ai_results
 )
@@ -170,16 +170,6 @@ class AIWorker:
                         box=face.box,
                         embedding=face.embedding.tolist(),
                         confidence=face.confidence
-                    )
-
-                # Create 'people' combination if multiple persons
-                if len(set(person_ids)) >= 2:
-                    unique_persons = list(set(person_ids))
-                    people_id = await get_or_create_people_tag(unique_persons)
-                    await add_photo_ai_tag(
-                        photo_id=photo_id,
-                        tag_id=people_id,
-                        confidence=1.0
                     )
 
         # 2. CLIP Tagging (Objects and Scenes)
