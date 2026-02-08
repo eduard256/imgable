@@ -191,17 +191,20 @@ class AIWorker:
 
             stats.tags_assigned += len(tags)
 
-        # 3. OCR
+        # 3. OCR - only for photos without taken_at (skip modern photos with EXIF date)
         ocr_text = None
         ocr_date = None
 
         if self._settings.ai_ocr_enabled:
-            ocr_result = ocr_processor.process(image)
-            ocr_text = ocr_result.text
-            ocr_date = ocr_result.detected_date
+            has_taken_at = photo.get("taken_at") is not None
 
-            if ocr_date:
-                stats.ocr_dates_found += 1
+            if not has_taken_at:
+                ocr_result = ocr_processor.process(image)
+                ocr_text = ocr_result.text
+                ocr_date = ocr_result.detected_date
+
+                if ocr_date:
+                    stats.ocr_dates_found += 1
 
         # 4. Update photo record
         await update_photo_ai_results(
