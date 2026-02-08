@@ -277,6 +277,7 @@ services:
       SCANNER_URL: http://scanner:8001
       PROCESSOR_URL: http://processor:8002
       PLACES_URL: http://places:8003
+      AI_URL: http://ai:8004
       # Rate limiting
       RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-5}
       # Logging

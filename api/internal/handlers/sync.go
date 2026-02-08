@@ -19,6 +19,7 @@ type SyncHandler struct {
 	scannerProxy   *httputil.ReverseProxy
 	processorProxy *httputil.ReverseProxy
 	placesProxy    *httputil.ReverseProxy
+	aiProxy        *httputil.ReverseProxy
 }
 
 // NewSyncHandler creates a new SyncHandler.
@@ -53,6 +54,15 @@ func NewSyncHandler(cfg *config.Config, logger *slog.Logger) *SyncHandler {
 	} else {
 		h.placesProxy = httputil.NewSingleHostReverseProxy(placesURL)
 		h.placesProxy.ErrorHandler = h.proxyErrorHandler
+	}
+
+	// Create AI proxy
+	aiURL, err := url.Parse(cfg.AIURL)
+	if err != nil {
+		logger.Error("invalid AI URL", slog.Any("error", err))
+	} else {
+		h.aiProxy = httputil.NewSingleHostReverseProxy(aiURL)
+		h.aiProxy.ErrorHandler = h.proxyErrorHandler
 	}
 
 	return h
@@ -107,6 +117,23 @@ func (h *SyncHandler) ProxyPlaces(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.placesProxy.ServeHTTP(w, r)
+}
+
+// ProxyAI proxies requests to the AI service.
+// Strips /api/v1/sync/ai prefix from the path.
+func (h *SyncHandler) ProxyAI(w http.ResponseWriter, r *http.Request) {
+	if h.aiProxy == nil {
+		http.Error(w, `{"error": "ai not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	// Strip prefix from path
+	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/v1/sync/ai")
+	if r.URL.Path == "" {
+		r.URL.Path = "/"
+	}
+
+	h.aiProxy.ServeHTTP(w, r)
 }
 
 // proxyErrorHandler handles proxy errors.

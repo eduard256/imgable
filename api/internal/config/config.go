@@ -38,6 +38,7 @@ type Config struct {
 	ScannerURL   string
 	ProcessorURL string
 	PlacesURL    string
+	AIURL        string
 
 	// Rate limiting
 	LoginRateLimit int // requests per minute
@@ -78,6 +79,7 @@ func Load() (*Config, error) {
 		ScannerURL:   getEnvString("SCANNER_URL", "http://localhost:8001"),
 		ProcessorURL: getEnvString("PROCESSOR_URL", "http://localhost:8002"),
 		PlacesURL:    getEnvString("PLACES_URL", "http://localhost:8003"),
+		AIURL:        getEnvString("AI_URL", "http://localhost:8004"),
 
 		// Rate limiting
 		LoginRateLimit: getEnvInt("RATE_LIMIT_LOGIN", 5),
