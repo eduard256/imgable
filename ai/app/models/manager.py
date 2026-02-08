@@ -31,28 +31,28 @@ class ModelInfo:
 # Model definitions with HuggingFace paths
 MODELS = {
     "face_detection": {
-        "repo": "onnx-community/scrfd_10g_bnkps",
-        "filename": "model.onnx",
-        "local_name": "scrfd_10g.onnx",
+        "repo": "public-data/insightface",
+        "filename": "models/buffalo_l/det_10g.onnx",
+        "local_name": "det_10g.onnx",
         "description": "SCRFD 10G face detection model"
     },
     "face_recognition": {
-        "repo": "onnx-community/arcface_r100",
-        "filename": "model.onnx",
-        "local_name": "arcface_r100.onnx",
-        "description": "ArcFace R100 face recognition model"
+        "repo": "public-data/insightface",
+        "filename": "models/buffalo_l/w600k_r50.onnx",
+        "local_name": "w600k_r50.onnx",
+        "description": "ArcFace W600K ResNet50 face recognition model"
     },
     "clip_visual": {
-        "repo": "onnx-community/openai-clip-vit-base-patch32",
-        "filename": "visual.onnx",
+        "repo": "Qdrant/clip-ViT-B-32-vision",
+        "filename": "model.onnx",
         "local_name": "clip_visual.onnx",
-        "description": "OpenCLIP ViT-B/32 visual encoder"
+        "description": "CLIP ViT-B/32 visual encoder"
     },
     "clip_textual": {
-        "repo": "onnx-community/openai-clip-vit-base-patch32",
-        "filename": "textual.onnx",
+        "repo": "Qdrant/clip-ViT-B-32-text",
+        "filename": "model.onnx",
         "local_name": "clip_textual.onnx",
-        "description": "OpenCLIP ViT-B/32 text encoder"
+        "description": "CLIP ViT-B/32 text encoder"
     },
 }
 

@@ -5,7 +5,7 @@ Uses OpenCLIP ViT-B/32 for zero-shot classification.
 
 import numpy as np
 import cv2
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
 import logging
 
@@ -96,16 +96,17 @@ class CLIPTagger:
 
         return cropped
 
-    def _tokenize(self, texts: List[str], context_length: int = 77) -> np.ndarray:
-        """Simple tokenizer for CLIP text encoder."""
-        # This is a simplified tokenizer. In production, use the proper CLIP tokenizer.
-        # For now, we'll use a basic approach that works with most ONNX CLIP models.
-
+    def _tokenize(self, texts: List[str], context_length: int = 77) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Simple tokenizer for CLIP text encoder.
+        Returns (input_ids, attention_mask).
+        """
         # Start/end tokens
         sot_token = 49406
         eot_token = 49407
 
-        result = np.zeros((len(texts), context_length), dtype=np.int64)
+        input_ids = np.zeros((len(texts), context_length), dtype=np.int64)
+        attention_mask = np.zeros((len(texts), context_length), dtype=np.int64)
 
         for i, text in enumerate(texts):
             # Simple character-level encoding (simplified)
@@ -122,9 +123,12 @@ class CLIPTagger:
 
             # Pad to context length
             tokens = tokens[:context_length]
-            result[i, :len(tokens)] = tokens
+            token_len = len(tokens)
+            input_ids[i, :token_len] = tokens
+            # Attention mask: 1 for real tokens, 0 for padding
+            attention_mask[i, :token_len] = 1
 
-        return result
+        return input_ids, attention_mask
 
     def _get_text_embedding(self, text: str) -> np.ndarray:
         """Get CLIP text embedding for a category."""
@@ -135,12 +139,15 @@ class CLIPTagger:
 
         # Create prompt
         prompt = f"a photo of {text}"
-        tokens = self._tokenize([prompt])
+        input_ids, attention_mask = self._tokenize([prompt])
 
-        # Run inference
-        input_name = session.get_inputs()[0].name
-        outputs = session.run(None, {input_name: tokens})
+        # Run inference with input_ids and attention_mask
+        outputs = session.run(None, {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask
+        })
 
+        # First output is text_embeds
         embedding = outputs[0][0]
         # Normalize
         embedding = embedding / np.linalg.norm(embedding)
