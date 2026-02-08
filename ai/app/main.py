@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import db
@@ -143,15 +142,6 @@ app = FastAPI(
     description="AI-powered photo analysis for face recognition, tagging, and OCR",
     version="1.0.0",
     lifespan=lifespan
-)
-
-# CORS middleware (for development)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 # Include API routes
