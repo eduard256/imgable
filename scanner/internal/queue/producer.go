@@ -4,6 +4,7 @@ package queue
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"time"
 
@@ -16,18 +17,20 @@ import (
 
 // Producer handles enqueuing file processing tasks.
 type Producer struct {
-	client  *queue.Client
-	logger  *logger.Logger
+	client       *queue.Client
+	logger       *logger.Logger
+	aiServiceURL string
+	httpClient   *http.Client
 
 	// Stats
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 	enqueuedCount int64
 	skippedCount  int64
 	errorCount    int64
 }
 
 // NewProducer creates a new task producer.
-func NewProducer(redisURL string, log *logger.Logger) (*Producer, error) {
+func NewProducer(redisURL, aiServiceURL string, log *logger.Logger) (*Producer, error) {
 	cfg := queue.DefaultClientConfig(redisURL)
 	client, err := queue.NewClient(cfg, log)
 	if err != nil {
@@ -35,8 +38,12 @@ func NewProducer(redisURL string, log *logger.Logger) (*Producer, error) {
 	}
 
 	return &Producer{
-		client: client,
-		logger: log.WithField("component", "producer"),
+		client:       client,
+		logger:       log.WithField("component", "producer"),
+		aiServiceURL: aiServiceURL,
+		httpClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
 	}, nil
 }
 
@@ -45,9 +52,34 @@ func (p *Producer) Close() error {
 	return p.client.Close()
 }
 
+// stopAIService sends a stop request to the AI service.
+// This is fire-and-forget: errors are logged but not returned.
+func (p *Producer) stopAIService() {
+	req, err := http.NewRequest(http.MethodPost, p.aiServiceURL+"/api/v1/stop", nil)
+	if err != nil {
+		p.logger.WithError(err).Debug("failed to create AI stop request")
+		return
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		p.logger.WithError(err).Debug("failed to stop AI service (may be unavailable)")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		p.logger.Info("AI service stopped")
+	}
+	// 409 means AI is not running - that's fine, ignore it
+}
+
 // HandleFileEvent processes a file event from the watcher.
 // It enqueues a task for the processor to handle.
 func (p *Producer) HandleFileEvent(event watcher.FileEvent) error {
+	// Stop AI service before enqueuing new work for processor
+	p.stopAIService()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

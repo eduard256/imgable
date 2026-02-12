@@ -29,6 +29,9 @@ type Config struct {
 	// API server configuration
 	APIPort string
 
+	// External services
+	AIServiceURL string
+
 	// Logging configuration
 	LogLevel  string
 	LogFormat string
@@ -43,6 +46,7 @@ func Load() *Config {
 		ScanInterval:     getDurationEnv("SCAN_INTERVAL_SEC", 60) * time.Second,
 		StuckFileTimeout: getDurationEnv("STUCK_FILE_TIMEOUT_MIN", 5) * time.Minute,
 		APIPort:          getEnv("API_PORT", "8001"),
+		AIServiceURL:     getEnv("AI_SERVICE_URL", "http://ai:8004"),
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 		LogFormat:        getEnv("LOG_FORMAT", "text"),
 	}

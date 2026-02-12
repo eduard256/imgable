@@ -60,13 +60,14 @@ class Settings(BaseSettings):
     ai_ocr_update_taken_at: bool = Field(default=True, alias="AI_OCR_UPDATE_TAKEN_AT")
 
     # Models
-    ai_model_ttl: int = Field(default=1800, alias="AI_MODEL_TTL")  # seconds
-    ai_model_preload: bool = Field(default=True, alias="AI_MODEL_PRELOAD")
-    ai_model_repo: Optional[str] = Field(default=None, alias="AI_MODEL_REPO")
+    ai_idle_unload_minutes: int = Field(default=10, alias="AI_IDLE_UNLOAD_MINUTES")  # Unload all models after N minutes of idle
 
     # Logging
     ai_log_level: str = Field(default="info", alias="AI_LOG_LEVEL")
     ai_log_each_photo: bool = Field(default=False, alias="AI_LOG_EACH_PHOTO")
+
+    # External services
+    processor_url: str = Field(default="http://processor:8002", alias="PROCESSOR_URL")
 
     # Retry settings
     ai_max_retries: int = Field(default=3, alias="AI_MAX_RETRIES")

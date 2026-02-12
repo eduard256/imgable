@@ -42,7 +42,7 @@ func main() {
 	m := metrics.New()
 
 	// Initialize queue producer
-	producer, err := queue.NewProducer(cfg.RedisURL, log)
+	producer, err := queue.NewProducer(cfg.RedisURL, cfg.AIServiceURL, log)
 	if err != nil {
 		log.Fatalf("failed to create queue producer: %v", err)
 	}

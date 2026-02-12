@@ -15,6 +15,7 @@ import threading
 
 import cv2
 import numpy as np
+import httpx
 
 from app.config import get_settings
 from app.db import (
@@ -74,6 +75,7 @@ class AIWorker:
         self._last_run: Optional[RunStats] = None
         self._stop_event = asyncio.Event()
         self._lock = threading.Lock()
+        self._last_activity: Optional[datetime] = None  # Track last processing activity
 
     @property
     def status(self) -> WorkerStatus:
@@ -105,6 +107,11 @@ class AIWorker:
             "ocr_dates_found": self._last_run.ocr_dates_found,
             "errors": self._last_run.errors
         }
+
+    @property
+    def last_activity(self) -> Optional[datetime]:
+        """Get timestamp of last processing activity."""
+        return self._last_activity
 
     def _get_image_path(self, photo_id: str) -> Path:
         """Get path to small preview image."""
@@ -224,6 +231,28 @@ class AIWorker:
                 f"{', date: ' + str(ocr_date) if ocr_date else ''}"
             )
 
+    async def _is_processor_busy(self) -> bool:
+        """
+        Check if the processor service is currently busy.
+        Returns True if processor has pending or active tasks.
+        Returns False if processor is idle or unreachable.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{self._settings.processor_url}/status")
+                if response.status_code == 200:
+                    data = response.json()
+                    queue = data.get("queue", {})
+                    pending = queue.get("pending", 0)
+                    processing = queue.get("processing", 0)
+                    if pending > 0 or processing > 0:
+                        logger.info(f"Processor is busy: {pending} pending, {processing} processing")
+                        return True
+                    return False
+        except Exception as e:
+            logger.debug(f"Could not reach processor service: {e}")
+            return False
+
     async def run(self) -> None:
         """
         Start processing photos from the queue.
@@ -235,6 +264,12 @@ class AIWorker:
                 return
             self._status = WorkerStatus.PROCESSING
             self._stop_event.clear()
+
+        # Check if processor is busy before starting
+        if await self._is_processor_busy():
+            logger.info("Processor is busy, AI worker will not start")
+            self._status = WorkerStatus.IDLE
+            return
 
         stats = RunStats()
         self._last_run = stats
@@ -271,6 +306,7 @@ class AIWorker:
                 try:
                     await self._process_photo(photo, stats)
                     await mark_queue_done(photo["id"])
+                    self._last_activity = datetime.now()  # Update activity timestamp
 
                 except Exception as e:
                     logger.error(f"Error processing {photo['id']}: {e}")
