@@ -76,6 +76,12 @@ func Shutdown() {
 	bimg.Shutdown()
 }
 
+// DropCache clears the libvips cache to free memory.
+// Call this when processor is idle to reduce memory footprint.
+func DropCache() {
+	bimg.VipsCacheDropAll()
+}
+
 // Process processes an image file and generates previews.
 // Returns ProcessResult with paths to generated files.
 func (p *Processor) Process(inputPath, outputID string) (*ProcessResult, error) {

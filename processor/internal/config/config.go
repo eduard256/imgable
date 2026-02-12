@@ -29,6 +29,9 @@ type Config struct {
 	// Resource limits
 	MaxMemoryMB int
 
+	// Idle cache cleanup (minutes, 0 = disabled)
+	IdleUnloadMinutes int
+
 	// Image processing
 	PreviewQuality int
 	PreviewSmallPx int
@@ -62,7 +65,8 @@ func Load() *Config {
 		MaxRetries: getIntEnv("MAX_RETRIES", 3),
 
 		// Resources
-		MaxMemoryMB: getIntEnv("MAX_MEMORY_MB", 1024),
+		MaxMemoryMB:       getIntEnv("MAX_MEMORY_MB", 1024),
+		IdleUnloadMinutes: getIntEnv("IDLE_UNLOAD_MINUTES", 10),
 
 		// Image processing
 		PreviewQuality: getIntEnv("PREVIEW_QUALITY", 85),

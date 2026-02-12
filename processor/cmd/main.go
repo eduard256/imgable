@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -27,6 +29,67 @@ import (
 	"github.com/eduard256/imgable/shared/pkg/logger"
 	"github.com/eduard256/imgable/shared/pkg/queue"
 )
+
+// idleCacheCleanup monitors queue activity and clears caches after idle timeout.
+// This returns memory to the OS when processor is not actively processing files.
+func idleCacheCleanup(idleMinutes int, inspector *queue.Inspector, log *logger.Logger) {
+	idleThreshold := time.Duration(idleMinutes) * time.Minute
+	checkInterval := time.Minute
+	var idleSince *time.Time
+
+	log.WithField("idle_minutes", idleMinutes).Info("starting idle cache cleanup monitor")
+
+	for {
+		time.Sleep(checkInterval)
+
+		// Check queue status
+		stats, err := inspector.GetQueueStats()
+		if err != nil {
+			log.WithError(err).Debug("failed to get queue stats for idle check")
+			continue
+		}
+
+		// Sum active and pending across all queues
+		var totalActive, totalPending int
+		for _, s := range stats {
+			totalActive += s.Active
+			totalPending += s.Pending
+		}
+
+		isIdle := totalActive == 0 && totalPending == 0
+
+		if !isIdle {
+			// Activity detected, reset idle timer
+			idleSince = nil
+			continue
+		}
+
+		// Start or continue idle timer
+		now := time.Now()
+		if idleSince == nil {
+			idleSince = &now
+			continue
+		}
+
+		// Check if idle long enough
+		idleDuration := now.Sub(*idleSince)
+		if idleDuration >= idleThreshold {
+			log.WithField("idle_seconds", int(idleDuration.Seconds())).Info("idle timeout reached, clearing caches and freeing memory")
+
+			// Clear libvips cache
+			imgproc.DropCache()
+
+			// Force garbage collection and return memory to OS
+			runtime.GC()
+			debug.FreeOSMemory()
+
+			log.Info("caches cleared, memory returned to OS")
+
+			// Reset timer to avoid repeated cleanup
+			idleSince = nil
+		}
+	}
+}
 
 func main() {
 	// Load configuration
@@ -148,6 +211,11 @@ func main() {
 			log.Fatalf("API server failed: %v", err)
 		}
 	}()
+
+	// Start idle cache cleanup goroutine
+	if cfg.IdleUnloadMinutes > 0 {
+		go idleCacheCleanup(cfg.IdleUnloadMinutes, inspector, log)
+	}
 
 	log.WithFields(map[string]interface{}{
 		"workers":    cfg.Workers,
