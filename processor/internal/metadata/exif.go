@@ -81,7 +81,23 @@ func (e *Extractor) Extract(path string) (*ImageMetadata, error) {
 
 	// Date/time taken
 	if dt, err := x.DateTime(); err == nil {
-		meta.TakenAt = &dt
+		// Validate date: must be between 1900 and now + 1 day (timezone tolerance)
+		minDate := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+		maxDate := time.Now().Add(24 * time.Hour)
+
+		if dt.Before(minDate) {
+			e.logger.WithFields(map[string]interface{}{
+				"path": path,
+				"date": dt.Format("2006-01-02 15:04:05"),
+			}).Warn("EXIF date is before 1900, ignoring")
+		} else if dt.After(maxDate) {
+			e.logger.WithFields(map[string]interface{}{
+				"path": path,
+				"date": dt.Format("2006-01-02 15:04:05"),
+			}).Warn("EXIF date is in the future, ignoring")
+		} else {
+			meta.TakenAt = &dt
+		}
 	}
 
 	// Camera make

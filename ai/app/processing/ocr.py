@@ -4,7 +4,7 @@ Uses RapidOCR for text recognition.
 """
 
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
 import logging
@@ -239,9 +239,30 @@ class OCRProcessor:
 
                 # Validate and create date
                 if d and m and y:
-                    if 1 <= d <= 31 and 1 <= m <= 12 and 1900 <= y <= 2100:
+                    # Basic range check
+                    if not (1 <= d <= 31 and 1 <= m <= 12):
+                        continue
+
+                    # Year boundaries: 1900 to today + 1 day (timezone tolerance)
+                    min_year = 1900
+                    max_date = date.today() + timedelta(days=1)
+
+                    if y < min_year:
+                        logger.warning(f"OCR date year {y} is before {min_year}, ignoring")
+                        continue
+
+                    try:
                         # Use date constructor to validate (handles Feb 30 etc)
-                        return date(y, m, d)
+                        parsed_date = date(y, m, d)
+
+                        if parsed_date > max_date:
+                            logger.warning(f"OCR date {parsed_date} is in the future, ignoring")
+                            continue
+
+                        return parsed_date
+                    except ValueError:
+                        # Invalid date (e.g., Feb 30)
+                        continue
 
             except (ValueError, IndexError):
                 continue
@@ -323,6 +344,15 @@ class OCRProcessor:
         except Exception as e:
             logger.warning(f"OCR processing failed: {e}")
             return OCRResult(text=None, detected_date=None)
+
+
+    def unload(self) -> bool:
+        """Unload OCR model from memory."""
+        if self._ocr is not None:
+            self._ocr = None
+            logger.info("RapidOCR unloaded")
+            return True
+        return False
 
 
 # Global OCR processor instance
