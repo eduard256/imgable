@@ -1,5 +1,6 @@
 {
   "password_placeholder": "...",
+  "login": "Enter",
   "wrong_password": "Wrong password",
   "photos": "Photos",
   "albums": "Albums",

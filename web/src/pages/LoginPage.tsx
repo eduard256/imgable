@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { login, setToken, savePassword } from '../lib/api'
+import { t } from '../lib/i18n'
 import DesertBackground from '../components/DesertBackground'
 
 // ============================================================
@@ -24,7 +25,6 @@ interface DotState {
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [dots, setDots] = useState<DotState[]>([])
   const [shaking, setShaking] = useState(false)
-  const [fadingOut, setFadingOut] = useState(false)
   const [showToggle, setShowToggle] = useState(false)
   const [revealed, setRevealed] = useState(false)
 
@@ -58,9 +58,8 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         }
       }))
 
-      // Fade out and redirect
-      setTimeout(() => setFadingOut(true), 300)
-      setTimeout(() => onLogin(), 1000)
+      // Redirect after dots scatter
+      setTimeout(() => onLogin(), 400)
     } catch {
       // Error animation: dots fall down like sand
       setDots(prev => prev.map(dot => ({ ...dot, state: 'falling' as const })))
@@ -142,17 +141,6 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       onClick={() => inputRef.current?.focus()}
     >
       <DesertBackground />
-
-      {/* Fade out overlay for success transition */}
-      {fadingOut && (
-        <div
-          className="absolute inset-0 z-50 pointer-events-none"
-          style={{
-            background: 'var(--color-desert-bg)',
-            animation: 'fadeOut 0.7s ease reverse forwards',
-          }}
-        />
-      )}
 
       {/* Password input area */}
       <div
@@ -291,19 +279,56 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
           )}
         </div>
 
-        {/* Hidden actual input — captures keyboard events */}
+        {/* Real input — overlays the dot area, transparent but focusable for mobile keyboards */}
         <input
           ref={inputRef}
           type="text"
+          inputMode="text"
           autoComplete="off"
           autoCapitalize="off"
           autoCorrect="off"
+          autoFocus
           spellCheck={false}
-          className="absolute opacity-0 w-0 h-0 pointer-events-none"
+          className="absolute inset-0 w-full h-full"
           onInput={handleInput}
           onKeyDown={handleKeyDown}
-          style={{ position: 'absolute', left: '-9999px' }}
+          style={{ opacity: 0, caretColor: 'transparent', fontSize: '16px' }}
         />
+
+        {/* Login button — appears after 3+ characters */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            handleSubmit()
+          }}
+          className="rounded-full transition-all duration-300"
+          style={{
+            marginTop: '8px',
+            padding: '12px 40px',
+            opacity: dots.length >= 3 ? 1 : 0,
+            transform: dots.length >= 3 ? 'translateY(0)' : 'translateY(8px)',
+            pointerEvents: dots.length >= 3 ? 'auto' : 'none',
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            color: 'rgba(255, 255, 255, 0.8)',
+            fontSize: '15px',
+            fontWeight: 300,
+            letterSpacing: '3px',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(255, 255, 255, 0.18)'
+            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255, 255, 255, 0.3)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(255, 255, 255, 0.1)'
+            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255, 255, 255, 0.15)'
+          }}
+          tabIndex={-1}
+          type="button"
+        >
+          {t('login')}
+        </button>
 
       </div>
     </div>
