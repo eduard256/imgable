@@ -32,7 +32,10 @@ export default function App() {
     <div className="fixed inset-0 overflow-hidden">
       <DesertBackground />
       <div className="relative z-10 h-full">
-        <GalleryPage onOpenPeople={() => setPage({ view: 'people' })} />
+        <GalleryPage
+          onOpenPeople={() => setPage({ view: 'people' })}
+          onOpenPerson={(id) => setPage({ view: 'person', id })}
+        />
 
         {page.view === 'people' && (
           <PeoplePage
