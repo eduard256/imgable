@@ -128,9 +128,18 @@ export default function GalleryPage() {
       const el = scrollRef.current
       if (!el) return
 
+      // Target: 70% gallery visible + 30% bottom section peeking
+      // Bottom section is 100vh. Boundary is at scrollHeight - 100vh.
+      // We want boundary at 70% of viewport: S + 0.7 * clientHeight = scrollHeight - clientHeight
+      // So S = scrollHeight - 1.7 * clientHeight
+      const scrollToBoundary = () => {
+        const target = el.scrollHeight - 1.7 * el.clientHeight
+        el.scrollTop = Math.max(target, 0)
+      }
+
       const observer = new MutationObserver(() => {
         if (el.scrollHeight > el.clientHeight) {
-          el.scrollTop = el.scrollHeight
+          scrollToBoundary()
           initialScrollDone.current = true
           observer.disconnect()
         }
@@ -141,7 +150,7 @@ export default function GalleryPage() {
       // Also try immediately in case already rendered
       requestAnimationFrame(() => {
         if (!initialScrollDone.current && el.scrollHeight > el.clientHeight) {
-          el.scrollTop = el.scrollHeight
+          scrollToBoundary()
           initialScrollDone.current = true
           observer.disconnect()
         }
@@ -170,10 +179,11 @@ export default function GalleryPage() {
       })
     }
 
-    // Dark overlay based on scroll distance from bottom
-    const maxScroll = el.scrollHeight - el.clientHeight
-    const distanceFromBottom = maxScroll - el.scrollTop
-    const progress = Math.min(distanceFromBottom / 1000, 1)
+    // Dark overlay based on scroll distance from the 70/30 boundary
+    // Boundary position: scrollHeight - 1.7 * clientHeight
+    const boundaryScrollTop = el.scrollHeight - 1.7 * el.clientHeight
+    const distanceFromBoundary = boundaryScrollTop - el.scrollTop
+    const progress = Math.min(Math.max(distanceFromBoundary, 0) / 1000, 1)
     setDarkOverlay(progress)
 
     updateDateRange()
@@ -268,19 +278,11 @@ export default function GalleryPage() {
         }}
       />
 
-      {/* Bottom 30% — fixed behind gallery */}
-      <div
-        className="fixed bottom-0 left-0 right-0"
-        style={{
-          height: '30vh',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
-      />
-
-      {/* Gallery — full screen scroll, with bottom padding so initial view shows 70/30 */}
+      {/* Gallery — full screen scroll */}
       <div
         ref={scrollRef}
         className="absolute inset-0 overflow-y-auto overflow-x-hidden"
+        style={{ scrollSnapType: 'y proximity' }}
         onScroll={onScroll}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -292,7 +294,6 @@ export default function GalleryPage() {
             gap: `${gap}px`,
             padding: `${gap}px`,
             minHeight: '70vh',
-            paddingBottom: '30vh',
           }}
         >
           {columns.map((col, colIdx) => (
@@ -344,6 +345,15 @@ export default function GalleryPage() {
             </div>
           ))}
         </div>
+
+        {/* Bottom section — scrollable below gallery, snap target */}
+        <div
+          style={{
+            height: '100vh',
+            scrollSnapAlign: 'start',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        />
       </div>
 
       {/* Date range label — sticky top left */}
