@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
-import { getLang } from '../lib/i18n'
+import { t, getLang } from '../lib/i18n'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -27,6 +27,15 @@ interface ApiResponse {
   photos: Photo[]
   next_cursor?: string
   has_more: boolean
+}
+
+interface Person {
+  id: string
+  name: string
+  name_source: 'manual' | 'auto'
+  photo_count: number
+  face_url: string
+  face_box: { x: number; y: number; w: number; h: number }
 }
 
 // Format date range for display
@@ -79,6 +88,7 @@ export default function GalleryPage() {
   })
   const [dateRange, setDateRange] = useState('')
   const [darkOverlay, setDarkOverlay] = useState(0)
+  const [people, setPeople] = useState<Person[]>([])
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -119,6 +129,13 @@ export default function GalleryPage() {
   // Initial load
   useEffect(() => {
     loadPhotos(null)
+
+    // Load people for bottom section — sorted by photo_count desc (API default)
+    apiFetch('/api/v1/people?limit=30&offset=0').then(async (res) => {
+      if (!res.ok) return
+      const data = await res.json()
+      setPeople(data.people ?? [])
+    }).catch(() => {})
   }, [loadPhotos])
 
   // After first load, scroll to bottom (newest photos)
@@ -349,11 +366,117 @@ export default function GalleryPage() {
         {/* Bottom section — scrollable below gallery, snap target */}
         <div
           style={{
-            height: '100vh',
+            minHeight: '100vh',
             scrollSnapAlign: 'start',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '24px 16px',
           }}
-        />
+        >
+          {/* People section */}
+          {people.length > 0 && (
+            <div>
+              {/* Section header: "People" + arrow */}
+              <div
+                className="flex items-center gap-2 cursor-pointer"
+                style={{ marginBottom: '16px' }}
+                onClick={() => {/* TODO: navigate to /people */}}
+              >
+                <span
+                  style={{
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    fontSize: '17px',
+                    fontWeight: 400,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {t('people')}
+                </span>
+                <svg
+                  width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="rgba(255,255,255,0.5)"
+                  strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </div>
+
+              {/* Horizontal scrollable grid: 2 rows */}
+              <div className="overflow-x-auto overflow-y-hidden hide-scrollbar">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateRows: 'repeat(2, 1fr)',
+                    gridAutoFlow: 'column',
+                    gridAutoColumns: 'max-content',
+                    gap: '16px 12px',
+                    paddingBottom: '4px',
+                  }}
+                >
+                  {people.map((person) => {
+                    // Zoom into face region using object-position + scale
+                    const box = person.face_box
+                    const scale = 1 / Math.max(box.w, box.h) * 0.75
+
+                    return (
+                      <div
+                        key={person.id}
+                        className="flex flex-col items-center"
+                        style={{ width: '100px' }}
+                      >
+                        {/* Square avatar with rounded corners */}
+                        <div
+                          className="relative overflow-hidden"
+                          style={{
+                            width: '100px',
+                            height: '100px',
+                            borderRadius: '16px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                          }}
+                        >
+                          <img
+                            src={person.face_url}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            style={{
+                              position: 'absolute',
+                              top: '0',
+                              left: '0',
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              objectPosition: `${(box.x + box.w / 2) * 100}% ${(box.y + box.h / 2) * 100}%`,
+                              transform: `scale(${scale})`,
+                            }}
+                          />
+                        </div>
+                        {/* Name — only if manually set */}
+                        {person.name_source === 'manual' && (
+                          <span
+                            style={{
+                              marginTop: '6px',
+                              fontSize: '11px',
+                              color: 'rgba(255, 255, 255, 0.6)',
+                              fontWeight: 300,
+                              textAlign: 'center',
+                              lineHeight: '1.2',
+                              maxWidth: '100px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {person.name}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Date range label — sticky top left */}

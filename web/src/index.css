@@ -116,6 +116,15 @@ html {
   overscroll-behavior: none;
 }
 
+/* Hide scrollbar for horizontal scroll sections */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 /* ============================================================
    Login page mesh gradient animation
    ============================================================ */
