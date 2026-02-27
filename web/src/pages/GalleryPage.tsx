@@ -78,7 +78,7 @@ function distributeToColumns(photos: Photo[], colCount: number, colWidth: number
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
 
-export default function GalleryPage() {
+export default function GalleryPage({ onOpenPeople }: { onOpenPeople: () => void }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
@@ -379,7 +379,7 @@ export default function GalleryPage() {
               <div
                 className="flex items-center gap-2 cursor-pointer"
                 style={{ marginBottom: '16px' }}
-                onClick={() => {/* TODO: navigate to /people */}}
+                onClick={onOpenPeople}
               >
                 <span
                   style={{

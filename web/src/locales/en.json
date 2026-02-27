@@ -22,5 +22,19 @@
   "memories": "memories",
   "no_photos": "No photos yet",
   "loading": "Loading...",
-  "memories_count": "memories"
+  "memories_count": "memories",
+  "together": "Together",
+  "back": "Back",
+  "rename": "Rename",
+  "merge": "Merge",
+  "faces": "Faces",
+  "save": "Save",
+  "close": "Close",
+  "enter_name": "Enter name",
+  "no_people": "No people detected yet",
+  "no_hidden_photos": "No hidden photos",
+  "hidden": "Hidden",
+  "photos_together": "Photos together",
+  "select_to_merge": "Select people to merge",
+  "detach": "Detach"
 }
