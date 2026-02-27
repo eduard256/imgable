@@ -18,8 +18,10 @@ from fastapi import FastAPI
 from app.config import get_settings
 from app.db import db
 from app.api import router
-from app.models import model_manager
 from app.processing import worker
+from app.processing.ocr import ocr_processor
+from app.processing.clip_tagger import clip_tagger
+from app.models import model_manager
 
 
 def setup_logging():
@@ -75,12 +77,6 @@ async def lifespan(app: FastAPI):
     await db.connect()
     logger.info("Database connected")
 
-    # Preload models if enabled
-    if settings.ai_model_preload:
-        logger.info("Preloading models...")
-        model_manager.preload_all()
-        logger.info("Models preloaded")
-
     # Auto-start worker if enabled
     if settings.ai_auto_start:
         logger.info("Auto-starting AI worker...")
@@ -90,8 +86,8 @@ async def lifespan(app: FastAPI):
     if settings.ai_scan_interval > 0:
         asyncio.create_task(periodic_scan(settings.ai_scan_interval))
 
-    if settings.ai_model_ttl > 0:
-        asyncio.create_task(periodic_model_cleanup(settings.ai_model_ttl))
+    if settings.ai_idle_unload_minutes > 0:
+        asyncio.create_task(periodic_idle_unload(settings.ai_idle_unload_minutes))
 
     logger.info("AI service started", port=settings.api_port)
 
@@ -123,14 +119,49 @@ async def periodic_scan(interval: int):
                 asyncio.create_task(worker.run())
 
 
-async def periodic_model_cleanup(ttl: int):
-    """Periodically unload expired models."""
+async def periodic_idle_unload(idle_minutes: int):
+    """
+    Periodically check if worker is idle and unload all models.
+
+    Unloads ONNX models, RapidOCR, and CLIP text embeddings cache
+    after N minutes of inactivity to minimize memory usage.
+    """
     logger = structlog.get_logger()
+    idle_seconds = idle_minutes * 60
+    check_interval = 60  # Check every minute
+
     while True:
-        await asyncio.sleep(ttl // 2)  # Check at half TTL interval
-        unloaded = model_manager.unload_expired()
-        if unloaded > 0:
-            logger.info(f"Unloaded {unloaded} expired models")
+        await asyncio.sleep(check_interval)
+
+        # Only unload if worker is idle
+        if worker.status.value != "idle":
+            continue
+
+        # Check if we have any models loaded
+        models_info = model_manager.get_info()
+        if not models_info["loaded"] and ocr_processor._ocr is None:
+            continue  # Nothing to unload
+
+        # Check idle time
+        last_activity = worker.last_activity
+        if last_activity is None:
+            continue  # No activity yet, nothing to unload
+
+        from datetime import datetime
+        idle_time = (datetime.now() - last_activity).total_seconds()
+
+        if idle_time >= idle_seconds:
+            logger.info(f"Idle for {idle_time:.0f}s (threshold: {idle_seconds}s), unloading all models...")
+
+            # Unload everything
+            models_unloaded = model_manager.unload_all()
+            ocr_unloaded = ocr_processor.unload()
+            clip_tagger.clear_cache()
+
+            logger.info(
+                f"Idle unload complete: {models_unloaded} ONNX models, "
+                f"OCR={'yes' if ocr_unloaded else 'no'}, CLIP cache cleared"
+            )
 
 
 # Setup logging

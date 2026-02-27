@@ -60,7 +60,7 @@ MODELS = {
 class ModelManager:
     """
     Manages ONNX model loading, caching, and lifecycle.
-    Models are automatically unloaded after TTL expires.
+    Models are loaded lazily on first use and unloaded after idle timeout.
     """
 
     def __init__(self):
@@ -157,27 +157,14 @@ class ModelManager:
                 return True
             return False
 
-    def unload_expired(self) -> int:
-        """Unload models that haven't been used within TTL."""
-        if self._settings.ai_model_ttl <= 0:
-            return 0  # TTL disabled
-
-        now = time.time()
-        ttl = self._settings.ai_model_ttl
-        unloaded = 0
-
+    def unload_all(self) -> int:
+        """Unload all models from memory."""
         with self._lock:
-            to_unload = [
-                name for name, info in self._models.items()
-                if now - info.last_used > ttl
-            ]
-
-            for name in to_unload:
-                del self._models[name]
-                logger.info(f"Unloaded expired model {name}")
-                unloaded += 1
-
-        return unloaded
+            count = len(self._models)
+            if count > 0:
+                self._models.clear()
+                logger.info(f"Unloaded all {count} models")
+            return count
 
     def get_info(self) -> Dict[str, Any]:
         """Get information about loaded models."""
@@ -197,18 +184,8 @@ class ModelManager:
 
             return {
                 "loaded": loaded,
-                "memory_used_mb": round(total_size, 1),
-                "ttl_seconds": self._settings.ai_model_ttl
+                "memory_used_mb": round(total_size, 1)
             }
-
-    def preload_all(self) -> None:
-        """Preload all models into memory."""
-        logger.info("Preloading all models...")
-        for model_name in MODELS:
-            try:
-                self.load(model_name)
-            except Exception as e:
-                logger.error(f"Failed to preload {model_name}: {e}")
 
     def is_loaded(self, model_name: str) -> bool:
         """Check if a model is loaded."""

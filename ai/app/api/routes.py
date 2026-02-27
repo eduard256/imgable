@@ -176,8 +176,7 @@ async def get_config():
             "update_taken_at": settings.ai_ocr_update_taken_at
         },
         "models": {
-            "ttl_seconds": settings.ai_model_ttl,
-            "preload": settings.ai_model_preload
+            "idle_unload_minutes": settings.ai_idle_unload_minutes
         }
     }
 
@@ -208,17 +207,9 @@ async def get_models():
 
 @router.post("/api/v1/models/reload")
 async def reload_models():
-    """Reload all models."""
-    # Unload all
-    for model_name in list(model_manager._models.keys()):
-        model_manager.unload(model_name)
-
-    # Preload if enabled
-    settings = get_settings()
-    if settings.ai_model_preload:
-        model_manager.preload_all()
-
-    return {"status": "reloaded", "models": model_manager.get_info()}
+    """Unload all models. They will be loaded lazily on next use."""
+    model_manager.unload_all()
+    return {"status": "unloaded", "models": model_manager.get_info()}
 
 
 # =============================================================================

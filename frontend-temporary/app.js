@@ -76,6 +76,9 @@ const router = {
     resolve() {
         const path = location.pathname;
 
+        // Stop any running auto-refresh when navigating away
+        if (typeof stopSyncAutoRefresh === 'function') stopSyncAutoRefresh();
+
         // Check auth for protected routes
         if (!token && !path.startsWith('/s/') && path !== '/login') {
             this.navigate('/login');
@@ -1486,6 +1489,8 @@ function closeClusterGallery() {
 const originalClosePhotoModal = typeof closePhotoModal === 'function' ? closePhotoModal : null;
 
 // Sync Status
+let syncAutoRefreshInterval = null;
+
 async function renderSync() {
     html($('#app'), renderHeader('sync') + `
         <div class="container">
@@ -1495,6 +1500,17 @@ async function renderSync() {
     `);
 
     await refreshSync();
+
+    // Start auto-refresh every 3 seconds
+    if (syncAutoRefreshInterval) clearInterval(syncAutoRefreshInterval);
+    syncAutoRefreshInterval = setInterval(refreshSync, 3000);
+}
+
+function stopSyncAutoRefresh() {
+    if (syncAutoRefreshInterval) {
+        clearInterval(syncAutoRefreshInterval);
+        syncAutoRefreshInterval = null;
+    }
 }
 
 async function refreshSync() {

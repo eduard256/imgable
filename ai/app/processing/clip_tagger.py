@@ -240,5 +240,14 @@ class CLIPTagger:
         return tags
 
 
+    def clear_cache(self) -> None:
+        """Clear cached text embeddings."""
+        if self._text_embeddings:
+            count = len(self._text_embeddings)
+            self._text_embeddings.clear()
+            self._initialized = False
+            logger.info(f"Cleared {count} CLIP text embeddings from cache")
+
+
 # Global CLIP tagger instance
 clip_tagger = CLIPTagger()
