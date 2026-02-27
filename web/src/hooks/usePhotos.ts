@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import { api, Photo } from '../utils/api'
+import { api } from '../utils/api'
+import type { Photo } from '../utils/api'
 
 /**
  * Hook for loading photos with cursor-based pagination.

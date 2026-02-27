@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
-import { Photo } from '../utils/api'
+import type { Photo } from '../utils/api'
 
 /**
  * Masonry photo grid — the heart of imgable.

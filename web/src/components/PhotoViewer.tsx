@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, Photo, PhotoDetail } from '../utils/api'
+import { api } from '../utils/api'
+import type { Photo, PhotoDetail } from '../utils/api'
 import { useTranslation } from '../hooks/useTranslation'
 import { formatDate, formatFileSize, formatDuration } from '../utils/format'
 

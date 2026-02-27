@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:9812',
       '/photos': 'http://localhost:9812',
-      '/s': 'http://localhost:9812',
+      '/s/': 'http://localhost:9812',
     },
   },
 })
