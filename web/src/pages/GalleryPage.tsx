@@ -78,6 +78,7 @@ export default function GalleryPage() {
     return DEFAULT_SCALE_INDEX
   })
   const [dateRange, setDateRange] = useState('')
+  const [darkOverlay, setDarkOverlay] = useState(0)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -169,6 +170,12 @@ export default function GalleryPage() {
       })
     }
 
+    // Dark overlay based on scroll distance from bottom
+    const maxScroll = el.scrollHeight - el.clientHeight
+    const distanceFromBottom = maxScroll - el.scrollTop
+    const progress = Math.min(distanceFromBottom / 1000, 1)
+    setDarkOverlay(progress)
+
     updateDateRange()
   }, [hasMore, cursor, loadPhotos])
 
@@ -251,12 +258,29 @@ export default function GalleryPage() {
   const columns = distributeToColumns(reversed, colCount, colWidth)
 
   return (
-    <div className="fixed inset-0 flex flex-col">
-      {/* Gallery area — top 70% */}
+    <div className="fixed inset-0">
+      {/* Dark terracotta overlay — fades in as user scrolls up */}
+      <div
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          background: '#1A0F0A',
+          opacity: darkOverlay * 0.92,
+        }}
+      />
+
+      {/* Bottom 30% — fixed behind gallery */}
+      <div
+        className="fixed bottom-0 left-0 right-0"
+        style={{
+          height: '30vh',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        }}
+      />
+
+      {/* Gallery — full screen scroll, with bottom padding so initial view shows 70/30 */}
       <div
         ref={scrollRef}
-        className="relative overflow-y-auto overflow-x-hidden"
-        style={{ height: '70vh' }}
+        className="absolute inset-0 overflow-y-auto overflow-x-hidden"
         onScroll={onScroll}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -264,7 +288,12 @@ export default function GalleryPage() {
         {/* Masonry grid */}
         <div
           className="flex w-full items-end"
-          style={{ gap: `${gap}px`, padding: `${gap}px` }}
+          style={{
+            gap: `${gap}px`,
+            padding: `${gap}px`,
+            minHeight: '70vh',
+            paddingBottom: '30vh',
+          }}
         >
           {columns.map((col, colIdx) => (
             <div
@@ -316,14 +345,6 @@ export default function GalleryPage() {
           ))}
         </div>
       </div>
-
-      {/* Bottom 30% — reserved */}
-      <div
-        className="flex-1"
-        style={{
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
-      />
 
       {/* Date range label — sticky top left */}
       {dateRange && (
