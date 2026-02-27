@@ -21,5 +21,6 @@
   "add_to_album": "To album",
   "memories": "memories",
   "no_photos": "No photos yet",
-  "loading": "Loading..."
+  "loading": "Loading...",
+  "memories_count": "memories"
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import LoginPage from './pages/LoginPage'
+import GalleryPage from './pages/GalleryPage'
 import DesertBackground from './components/DesertBackground'
 import { getToken } from './lib/api'
 import './index.css'
@@ -20,17 +21,8 @@ export default function App() {
   return (
     <div className="fixed inset-0 overflow-hidden">
       <DesertBackground />
-      <div className="relative z-10 flex items-center justify-center h-full">
-        <p
-          className="text-lg tracking-widest"
-          style={{
-            color: 'rgba(255, 255, 255, 0.5)',
-            fontWeight: 200,
-            letterSpacing: '4px',
-          }}
-        >
-          imgable
-        </p>
+      <div className="relative z-10 h-full">
+        <GalleryPage />
       </div>
     </div>
   )
