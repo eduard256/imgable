@@ -24,7 +24,6 @@ interface DotState {
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [dots, setDots] = useState<DotState[]>([])
   const [shaking, setShaking] = useState(false)
-  const [showToggle, setShowToggle] = useState(false)
   const [revealed, setRevealed] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -117,14 +116,12 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         ))
       }, 120)
 
-      setShowToggle(true)
     } else if (newValue.length < oldValue.length) {
       // Character removed
       setDots(prev => {
         const removed = prev[prev.length - 1]
         if (removed?.revealTimer) clearTimeout(removed.revealTimer)
         const updated = prev.slice(0, -1)
-        if (updated.length === 0) setShowToggle(false)
         return updated
       })
     }
@@ -198,10 +195,6 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
               style.animationDelay = `${Math.random() * 0.15}s`
             } else if (dot.state === 'exploding') {
               style.animation = 'dotExplode 0.5s ease-out forwards'
-              style.setProperty?.('--dx', `${dot.dx}px`)
-              style.setProperty?.('--dy', `${dot.dy}px`)
-              // Use transform directly since CSS custom properties with setProperty
-              // won't work on CSSProperties — inline the transform
               style.transform = `translate(${dot.dx}px, ${dot.dy}px) scale(0)`
               style.opacity = 0
               style.transition = 'transform 0.5s ease-out, opacity 0.5s ease-out'

@@ -4,6 +4,7 @@ import GalleryPage from './pages/GalleryPage'
 import PeoplePage from './pages/PeoplePage'
 import PersonPage from './pages/PersonPage'
 import AlbumsPage, { AlbumDetailView } from './pages/AlbumsPage'
+import AdminPage from './pages/AdminPage'
 import DesertBackground from './components/DesertBackground'
 import type { BgTheme } from './components/DesertBackground'
 import { getToken } from './lib/api'
@@ -17,15 +18,23 @@ type Page =
   | { view: 'group'; ids: string[] }
   | { view: 'albums' }
   | { view: 'album'; id: string }
+  | { view: 'admin' }
+
+// Check initial page from URL path
+function getInitialPage(): Page {
+  if (window.location.pathname === '/admin') return { view: 'admin' }
+  return { view: 'gallery' }
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken())
-  const [page, setPage] = useState<Page>({ view: 'gallery' })
+  const [page, setPage] = useState<Page>(getInitialPage)
 
-  // Background theme: terracotta on login, ivory after auth
-  const [bgTheme, setBgTheme] = useState<BgTheme>(() =>
-    getToken() ? 'ivory' : 'terracotta'
-  )
+  // Background theme: terracotta on login and admin, ivory on gallery
+  const [bgTheme, setBgTheme] = useState<BgTheme>(() => {
+    if (!getToken()) return 'terracotta'
+    return getInitialPage().view === 'admin' ? 'terracotta' : 'ivory'
+  })
 
   // Transition state: controls fade-out of login and fade-in of gallery
   const [loginFading, setLoginFading] = useState(false)
@@ -37,17 +46,42 @@ export default function App() {
     return () => window.removeEventListener('storage', check)
   }, [])
 
+  // Sync background theme with current page
+  useEffect(() => {
+    if (!authed) return
+    setBgTheme(page.view === 'admin' ? 'terracotta' : 'ivory')
+  }, [page.view, authed])
+
+  // Update browser URL when page changes (without reload)
+  useEffect(() => {
+    const path = page.view === 'admin' ? '/admin' : '/'
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path)
+    }
+  }, [page.view])
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    function onPopState() {
+      setPage(getInitialPage())
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
   function handleLogin() {
-    // 1. Start background color morph
-    setBgTheme('ivory')
+    // 1. Start background color morph — go to ivory unless landing on /admin
+    const initialPage = getInitialPage()
+    setBgTheme(initialPage.view === 'admin' ? 'terracotta' : 'ivory')
 
     // 2. Fade out login UI
     setLoginFading(true)
 
-    // 3. After login fades out, switch to gallery and fade it in
+    // 3. After login fades out, switch to authed state and fade in
     setTimeout(() => {
       setAuthed(true)
-      // Small delay before gallery fade-in to let it mount
+      setPage(initialPage)
+      // Small delay before fade-in to let it mount
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setGalleryVisible(true)
@@ -56,9 +90,13 @@ export default function App() {
     }, 800)
   }
 
+  function navigateFromAdmin() {
+    setPage({ view: 'gallery' })
+  }
+
   return (
     <div className="fixed inset-0 overflow-hidden">
-      {/* Single background instance — shared between login and gallery */}
+      {/* Single background instance — shared between all views */}
       <DesertBackground theme={bgTheme} />
 
       {!authed ? (
@@ -73,7 +111,19 @@ export default function App() {
         >
           <LoginPage onLogin={handleLogin} />
         </div>
+      ) : page.view === 'admin' ? (
+        /* Admin page — full replacement, terracotta background */
+        <div
+          className="relative z-10 h-full"
+          style={{
+            opacity: galleryVisible ? 1 : 0,
+            transition: 'opacity 0.6s ease-in',
+          }}
+        >
+          <AdminPage onBack={navigateFromAdmin} />
+        </div>
       ) : (
+        /* Gallery and overlay pages */
         <div
           className="relative z-10 h-full"
           style={{
@@ -86,6 +136,7 @@ export default function App() {
             onOpenPerson={(id) => setPage({ view: 'person', id })}
             onOpenAlbums={() => setPage({ view: 'albums' })}
             onOpenAlbum={(id) => setPage({ view: 'album', id })}
+            onOpenAdmin={() => setPage({ view: 'admin' })}
           />
 
           {page.view === 'people' && (
