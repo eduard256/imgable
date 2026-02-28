@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-02-28
+
+### Changed
+
+- Switch to `network_mode: host` for all services -- works out of the box in unprivileged Proxmox LXC containers without any host configuration
+- PostgreSQL and Redis bind to `127.0.0.1` only -- not accessible outside the host
+- All internal services (scanner, processor, places, ai) listen on `127.0.0.1` via new `API_HOST` env var
+- Move PostgreSQL, Redis, and API data to `DATA_PATH/db/` bind mounts -- all data in one place for easy backup
+- Production `docker-compose.yml` added with pre-built images from Docker Hub
+
 ## [0.1.0] - 2026-02-28
 
 First public release.
