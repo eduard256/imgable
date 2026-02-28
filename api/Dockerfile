@@ -1,12 +1,29 @@
 # =============================================================================
 # Imgable API Server Dockerfile
-# Multi-stage build for minimal production image
+# Multi-stage build: frontend (Node) + backend (Go) in one image
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Stage 1: Build the Go binary
+# Stage 1: Build the React frontend
 # -----------------------------------------------------------------------------
-FROM golang:1.24-alpine3.22 AS builder
+FROM node:22-alpine AS frontend
+
+WORKDIR /web
+
+# Copy package files first for layer caching
+COPY web/package.json web/package-lock.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code and build
+COPY web/ .
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 2: Build the Go binary
+# -----------------------------------------------------------------------------
+FROM golang:1.26-alpine3.22 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -31,7 +48,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     ./cmd/main.go
 
 # -----------------------------------------------------------------------------
-# Stage 2: Create minimal production image
+# Stage 3: Create minimal production image
 # -----------------------------------------------------------------------------
 FROM alpine:3.22
 
@@ -54,6 +71,9 @@ COPY --from=builder /api /usr/local/bin/api
 
 # Copy database migrations
 COPY migrations/ /migrations/
+
+# Copy frontend build from stage 1
+COPY --from=frontend /web/dist/ /static/
 
 # Switch to non-root user
 USER imgable

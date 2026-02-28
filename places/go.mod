@@ -1,6 +1,6 @@
 module github.com/eduard256/imgable/places
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/eduard256/imgable/shared v0.0.0
