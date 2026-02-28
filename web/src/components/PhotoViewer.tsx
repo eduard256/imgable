@@ -471,7 +471,7 @@ export default function PhotoViewer({
 
     if (isSwipingRef.current === 'horizontal') {
       if (Math.abs(dx) > 80) {
-        navigate(currentIndexRef.current + (dx > 0 ? -1 : 1))
+        navigate(currentIndexRef.current + (dx > 0 ? 1 : -1))
       }
       setSwipeOffset(0)
     } else if (isSwipingRef.current === 'vertical' && dy > 120) {
@@ -850,14 +850,14 @@ export default function PhotoViewer({
         {/* PC: Coverflow with neighbors */}
         {!isMobile && (
           <>
-            {/* Previous photo (left) */}
-            {currentIndex > 0 && (
+            {/* Next photo (left = older = higher index) */}
+            {currentIndex < photos.length - 1 && (
               <CoverflowCard
-                photo={photos[currentIndex - 1]}
+                photo={photos[currentIndex + 1]}
                 position="left"
-                tilt={getTilt(currentIndex - 1)}
+                tilt={getTilt(currentIndex + 1)}
                 isFastNav={isFastNav}
-                onClick={() => navigate(currentIndex - 1)}
+                onClick={() => navigate(currentIndex + 1)}
               />
             )}
           </>
@@ -998,36 +998,36 @@ export default function PhotoViewer({
           )}
         </div>
 
-        {/* PC: Next photo (right) */}
-        {!isMobile && currentIndex < photos.length - 1 && (
+        {/* PC: Previous photo (right = newer = lower index) */}
+        {!isMobile && currentIndex > 0 && (
           <CoverflowCard
-            photo={photos[currentIndex + 1]}
+            photo={photos[currentIndex - 1]}
             position="right"
-            tilt={getTilt(currentIndex + 1)}
+            tilt={getTilt(currentIndex - 1)}
             isFastNav={isFastNav}
-            onClick={() => navigate(currentIndex + 1)}
+            onClick={() => navigate(currentIndex - 1)}
           />
         )}
 
         {/* PC: Navigation arrows */}
         {!isMobile && (
           <>
-            {currentIndex > 0 && (
+            {currentIndex < photos.length - 1 && (
               <button
                 className="viewer-nav-arrow"
                 style={{ left: '16px' }}
-                onClick={() => navigate(currentIndex - 1)}
+                onClick={() => navigate(currentIndex + 1)}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="15 18 9 12 15 6" />
                 </svg>
               </button>
             )}
-            {currentIndex < photos.length - 1 && (
+            {currentIndex > 0 && (
               <button
                 className="viewer-nav-arrow"
                 style={{ right: '16px' }}
-                onClick={() => navigate(currentIndex + 1)}
+                onClick={() => navigate(currentIndex - 1)}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="9 6 15 12 9 18" />
