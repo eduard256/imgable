@@ -886,8 +886,9 @@ export default function PhotoViewer({
                 src={videoUrl}
                 className="viewer-media"
                 style={{
-                  maxWidth: isMobile ? '100vw' : '100%',
-                  maxHeight: isMobile ? '100vh' : '75vh',
+                  width: isMobile ? '100vw' : '100%',
+                  height: isMobile ? '100vh' : '75vh',
+                  objectFit: 'contain',
                   borderRadius: '4px',
                   boxShadow: isMobile ? 'none' : '0 25px 60px rgba(0, 0, 0, 0.6)',
                 }}
@@ -986,8 +987,8 @@ export default function PhotoViewer({
               className="viewer-media"
               draggable={false}
               style={{
-                maxWidth: isMobile ? '100vw' : '100%',
-                maxHeight: isMobile ? '100vh' : '75vh',
+                width: isMobile ? '100vw' : '100%',
+                height: isMobile ? '100vh' : '75vh',
                 objectFit: 'contain',
                 borderRadius: '4px',
                 boxShadow: isMobile ? 'none' : '0 25px 60px rgba(0, 0, 0, 0.6)',
