@@ -4,6 +4,7 @@ import GalleryPage from './pages/GalleryPage'
 import PeoplePage from './pages/PeoplePage'
 import PersonPage from './pages/PersonPage'
 import AlbumsPage, { AlbumDetailView } from './pages/AlbumsPage'
+import FoldersPage from './pages/FoldersPage'
 import AdminPage from './pages/AdminPage'
 import SharePage from './pages/SharePage'
 import KioskPage from './pages/KioskPage'
@@ -20,6 +21,7 @@ type Page =
   | { view: 'group'; ids: string[] }
   | { view: 'albums' }
   | { view: 'album'; id: string }
+  | { view: 'folders' }
   | { view: 'admin' }
   | { view: 'share'; code: string }
   | { view: 'kiosk'; code: string }
@@ -162,6 +164,7 @@ export default function App() {
             onOpenPerson={(id) => setPage({ view: 'person', id })}
             onOpenAlbums={() => setPage({ view: 'albums' })}
             onOpenAlbum={(id) => setPage({ view: 'album', id })}
+            onOpenFolders={() => setPage({ view: 'folders' })}
             onOpenAdmin={() => setPage({ view: 'admin' })}
           />
 
@@ -184,6 +187,12 @@ export default function App() {
             <PersonPage
               mode={{ type: 'group', ids: page.ids }}
               onBack={() => setPage({ view: 'people' })}
+            />
+          )}
+
+          {page.view === 'folders' && (
+            <FoldersPage
+              onBack={() => setPage({ view: 'gallery' })}
             />
           )}
 

@@ -149,5 +149,8 @@
   "creating": "Создание...",
   "copy_link": "Копировать ссылку",
   "delete_selected_confirm": "Удалить {n} фото?",
-  "copied": "Скопировано"
+  "copied": "Скопировано",
+  "folders": "Папки",
+  "folder_empty": "Папка пуста",
+  "items_count": "{n} элементов"
 }

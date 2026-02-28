@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
@@ -6,6 +6,9 @@ import UploadManager from '../components/UploadManager'
 import type { UploadManagerHandle } from '../components/UploadManager'
 import PhotoViewer from '../components/PhotoViewer'
 import type { ViewerPhoto } from '../components/PhotoViewer'
+import { SelectBarBtn, AlbumPickerModal, BulkShareModal, BulkKioskModal, SelectModalOverlay, modalInputStyle } from '../components/SelectionBar'
+import type { PickerAlbum } from '../components/SelectionBar'
+import { useDragSelect } from '../hooks/useDragSelect'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -96,7 +99,7 @@ function distributeToColumns(photos: IndexedPhoto[], colCount: number, colWidth:
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
 
-export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum, onOpenMap, onOpenAdmin }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void; onOpenMap?: () => void; onOpenAdmin?: () => void }) {
+export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum, onOpenFolders, onOpenMap, onOpenAdmin }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void; onOpenFolders?: () => void; onOpenMap?: () => void; onOpenAdmin?: () => void }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
@@ -112,27 +115,6 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const [viewerIndex, setViewerIndex] = useState(0)
   const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
 
-  // Select mode state
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [liveCount, setLiveCount] = useState(0)
-
-  // Select mode refs — kept outside React state for performance during drag/auto-scroll.
-  // Only flushed to selectedIds state via flushSelection() to trigger re-render.
-  // Anchor/current stored as photo IDs (stable across array changes), not indices.
-  const selectDragActive = useRef(false)
-  const selectDragPending = useRef(false)
-  const selectDragAnchorId = useRef<string | null>(null)
-  const selectDragCurrentId = useRef<string | null>(null)
-  const selectBaseSet = useRef<Set<string>>(new Set())
-  const selectLiveSet = useRef<Set<string>>(new Set())
-  const autoScrollRaf = useRef(0)
-  const autoScrollSpeed = useRef(0)
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const longPressTriggered = useRef(false)
-  const lastPointerPos = useRef({ x: 0, y: 0 })
-  const pointerDownPos = useRef({ x: 0, y: 0 })
-
   const scrollRef = useRef<HTMLDivElement>(null)
   const masonryRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -140,6 +122,12 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const pinchStartDistance = useRef(0)
   const uploadRef = useRef<UploadManagerHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Drag-select hook
+  const {
+    selectMode, setSelectMode, selectedIds, liveCount,
+    exitSelectMode, pointerHandlers, selectBaseSet, selectLiveSet, longPressTriggered,
+  } = useDragSelect({ photos, scrollRef, gridRef: masonryRef })
 
   const colCount = SCALE_PRESETS[scaleIndex]
 
@@ -372,190 +360,13 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   }
 
   // ============================================================
-  // Select mode logic
-  // ============================================================
-
-  // Photo ID to original-array index lookup (refreshed on every render).
-  // photos array: index 0 = newest, index N-1 = oldest.
-  const idToOrigIdx = useMemo(() => {
-    const map = new Map<string, number>()
-    for (let i = 0; i < photos.length; i++) map.set(photos[i].id, i)
-    return map
-  }, [photos])
-
-  // Compute the set of IDs in a chronological range between two photo IDs.
-  // Uses original array indices (0=newest, N-1=oldest), stable across array growth
-  // because new older photos are appended at the end.
-  const computeRangeByIds = useCallback((anchorId: string, currentId: string): Set<string> => {
-    const a = idToOrigIdx.get(anchorId)
-    const b = idToOrigIdx.get(currentId)
-    if (a === undefined || b === undefined) return new Set()
-    const lo = Math.min(a, b)
-    const hi = Math.max(a, b)
-    const ids = new Set<string>()
-    for (let i = lo; i <= hi; i++) ids.add(photos[i].id)
-    return ids
-  }, [idToOrigIdx, photos])
-
-  // Flush live selection set into React state for re-render.
-  const flushSelection = useCallback(() => {
-    setSelectedIds(new Set(selectLiveSet.current))
-  }, [])
-
-  // Find the photo ID under a screen coordinate via DOM hit-test.
-  const photoIdAtPoint = useCallback((x: number, y: number): string | null => {
-    const el = document.elementFromPoint(x, y) as HTMLElement | null
-    if (!el) return null
-    const photoEl = el.closest('[data-photo-id]') as HTMLElement | null
-    if (!photoEl) return null
-    return photoEl.dataset.photoId ?? null
-  }, [])
-
-  // Update drag range: accumulate into live set (drag only adds, never removes).
-  const updateDragRange = useCallback((currentId: string) => {
-    if (!selectDragAnchorId.current) return
-    selectDragCurrentId.current = currentId
-    const rangeIds = computeRangeByIds(selectDragAnchorId.current, currentId)
-    // Add range to live set — never remove anything
-    const prevSize = selectLiveSet.current.size
-    for (const id of rangeIds) selectLiveSet.current.add(id)
-
-    // Update live counter only when count actually changed
-    if (selectLiveSet.current.size !== prevSize) {
-      setLiveCount(selectLiveSet.current.size)
-    }
-
-    // Apply CSS classes directly for instant visual feedback without re-render
-    const grid = masonryRef.current
-    if (!grid) return
-    const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
-    for (const item of items) {
-      const id = item.dataset.photoId!
-      if (selectLiveSet.current.has(id)) {
-        item.classList.add('photo-selected')
-      }
-    }
-  }, [computeRangeByIds])
-
-  // Auto-scroll loop: runs via rAF while drag is near screen edge.
-  const autoScrollLoop = useCallback(() => {
-    if (!selectDragActive.current || autoScrollSpeed.current === 0) {
-      autoScrollRaf.current = 0
-      return
-    }
-    const el = scrollRef.current
-    if (el) {
-      el.scrollTop += autoScrollSpeed.current
-      // Re-hit-test at last known pointer position after scroll
-      const id = photoIdAtPoint(lastPointerPos.current.x, lastPointerPos.current.y)
-      if (id) updateDragRange(id)
-    }
-    autoScrollRaf.current = requestAnimationFrame(autoScrollLoop)
-  }, [photoIdAtPoint, updateDragRange])
-
-  // Start auto-scroll in a direction (negative = up, positive = down).
-  const startAutoScroll = useCallback((speed: number) => {
-    autoScrollSpeed.current = speed
-    if (!autoScrollRaf.current && speed !== 0) {
-      autoScrollRaf.current = requestAnimationFrame(autoScrollLoop)
-    }
-  }, [autoScrollLoop])
-
-  const stopAutoScroll = useCallback(() => {
-    autoScrollSpeed.current = 0
-    if (autoScrollRaf.current) {
-      cancelAnimationFrame(autoScrollRaf.current)
-      autoScrollRaf.current = 0
-    }
-  }, [])
-
-  // Compute auto-scroll speed from pointer Y position.
-  // Edge zones: top 60px and bottom 60px of the scroll container.
-  const computeAutoScrollSpeed = useCallback((clientY: number) => {
-    const el = scrollRef.current
-    if (!el) return 0
-    const rect = el.getBoundingClientRect()
-    const edgeZone = 60
-    const topDist = clientY - rect.top
-    const bottomDist = rect.bottom - clientY
-
-    if (topDist < edgeZone) {
-      // Scroll up — speed proportional to closeness to edge (negative = up)
-      const ratio = 1 - topDist / edgeZone
-      return -(6 + ratio * 42)
-    }
-    if (bottomDist < edgeZone) {
-      // Scroll down — speed proportional to closeness to edge
-      const ratio = 1 - bottomDist / edgeZone
-      return 6 + ratio * 42
-    }
-    return 0
-  }, [])
-
-  // Cancel long press timer without side effects.
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }, [])
-
-  // Enter select mode with an initial photo selected.
-  const enterSelectMode = useCallback((photoId: string) => {
-    setSelectMode(true)
-    const initial = new Set<string>([photoId])
-    selectBaseSet.current = initial
-    selectLiveSet.current = initial
-    setSelectedIds(initial)
-
-    // Apply CSS immediately
-    const grid = masonryRef.current
-    if (grid) {
-      const el = grid.querySelector(`[data-photo-id="${photoId}"]`) as HTMLElement | null
-      if (el) el.classList.add('photo-selected')
-    }
-  }, [])
-
-  // Exit select mode — clear everything.
-  const exitSelectMode = useCallback(() => {
-    setSelectMode(false)
-    setSelectedIds(new Set())
-    selectBaseSet.current = new Set()
-    selectLiveSet.current = new Set()
-    selectDragActive.current = false
-    selectDragAnchorId.current = null
-    selectDragCurrentId.current = null
-    stopAutoScroll()
-
-    // Remove CSS classes from all items
-    const grid = masonryRef.current
-    if (grid) {
-      const items = grid.querySelectorAll('.photo-selected') as NodeListOf<HTMLElement>
-      for (const item of items) item.classList.remove('photo-selected')
-    }
-  }, [stopAutoScroll])
-
-  // Toggle single photo in select mode (tap behavior).
-  const togglePhotoSelection = useCallback((photoId: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(photoId)) next.delete(photoId)
-      else next.add(photoId)
-      selectBaseSet.current = next
-      selectLiveSet.current = next
-      return next
-    })
-  }, [])
-
-  // ============================================================
-  // Selection action modals state
+  // Selection action modals and batch operations
   // ============================================================
   const [showAlbumPicker, setShowAlbumPicker] = useState(false)
-  const [albumList, setAlbumList] = useState<Album[]>([])
+  const [albumList, setAlbumList] = useState<PickerAlbum[]>([])
   const [showShareModal, setShowShareModal] = useState(false)
   const [showKioskModal, setShowKioskModal] = useState(false)
 
-  // Bulk delete selected photos
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return
     const msg = t('delete_selected_confirm').replace('{n}', String(selectedIds.size))
@@ -571,11 +382,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     } catch { /* ignore */ }
   }, [selectedIds, exitSelectMode])
 
-  // Bulk favorite selected photos
   const handleBulkFavorite = useCallback(async () => {
     if (selectedIds.size === 0) return
     const ids = Array.from(selectedIds)
-    // Fire in batches of 10
     for (let i = 0; i < ids.length; i += 10) {
       const batch = ids.slice(i, i + 10)
       await Promise.all(batch.map(id =>
@@ -586,18 +395,16 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     exitSelectMode()
   }, [selectedIds, exitSelectMode])
 
-  // Open album picker modal
   const handleOpenAlbumPicker = useCallback(async () => {
     try {
       const res = await apiFetch('/api/v1/albums')
       if (!res.ok) return
       const data = await res.json()
-      setAlbumList((data.albums ?? []).filter((a: Album) => a.type === 'manual' || a.type === 'favorites'))
+      setAlbumList((data.albums ?? []).filter((a: PickerAlbum) => a.type === 'manual' || a.type === 'favorites'))
       setShowAlbumPicker(true)
     } catch { /* ignore */ }
   }, [])
 
-  // Add selected photos to an album
   const handleAddToAlbum = useCallback(async (albumId: string) => {
     if (selectedIds.size === 0) return
     try {
@@ -610,156 +417,6 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       exitSelectMode()
     } catch { /* ignore */ }
   }, [selectedIds, exitSelectMode])
-
-  // Pointer event handlers for the masonry grid.
-  // Unified: works for both mouse and touch via pointer events.
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // Only primary pointer (left click / first finger)
-    if (!e.isPrimary) return
-    // Ignore if pinch-zooming (multi-touch)
-    if (e.pointerType === 'touch' && e.isPrimary === false) return
-
-    lastPointerPos.current = { x: e.clientX, y: e.clientY }
-    longPressTriggered.current = false
-    pointerDownPos.current = { x: e.clientX, y: e.clientY }
-
-    const id = photoIdAtPoint(e.clientX, e.clientY)
-
-    if (selectMode) {
-      // Already in select mode — don't start drag immediately, wait for movement.
-      // This allows single taps to toggle selection (including deselecting).
-      if (id) {
-        selectDragPending.current = true
-        selectDragAnchorId.current = id
-        selectDragCurrentId.current = id
-        selectBaseSet.current = new Set(selectedIds)
-        selectLiveSet.current = new Set(selectedIds)
-      }
-    } else {
-      // Not in select mode — start long press timer
-      if (id) {
-        const capturedId = id
-        longPressTimer.current = setTimeout(() => {
-          longPressTriggered.current = true
-          enterSelectMode(capturedId)
-          // Immediately begin drag-select so continued movement selects more
-          selectDragActive.current = true
-          selectDragAnchorId.current = capturedId
-          selectDragCurrentId.current = capturedId
-          // Haptic feedback on supported devices
-          if (navigator.vibrate) navigator.vibrate(30)
-        }, 400)
-      }
-    }
-  }, [selectMode, selectedIds, photoIdAtPoint, enterSelectMode])
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!e.isPrimary) return
-    const dx = e.clientX - lastPointerPos.current.x
-    const dy = e.clientY - lastPointerPos.current.y
-
-    // Cancel long press if finger moved too far (> 10px)
-    if (longPressTimer.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-      cancelLongPress()
-    }
-
-    lastPointerPos.current = { x: e.clientX, y: e.clientY }
-
-    // Promote pending drag to active drag once pointer moves beyond threshold (8px)
-    if (selectDragPending.current && !selectDragActive.current) {
-      const totalDx = e.clientX - pointerDownPos.current.x
-      const totalDy = e.clientY - pointerDownPos.current.y
-      if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) {
-        selectDragActive.current = true
-        selectDragPending.current = false
-        if (selectDragAnchorId.current) updateDragRange(selectDragAnchorId.current)
-        // Capture pointer for reliable tracking
-        ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-      }
-    }
-
-    if (!selectDragActive.current) return
-
-    // Hit-test photo under pointer
-    const id = photoIdAtPoint(e.clientX, e.clientY)
-    if (id) updateDragRange(id)
-
-    // Auto-scroll near edges
-    const speed = computeAutoScrollSpeed(e.clientY)
-    if (speed !== 0) {
-      startAutoScroll(speed)
-    } else {
-      stopAutoScroll()
-    }
-  }, [photoIdAtPoint, updateDragRange, computeAutoScrollSpeed, startAutoScroll, stopAutoScroll, cancelLongPress])
-
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    if (!e.isPrimary) return
-    cancelLongPress()
-    stopAutoScroll()
-
-    const wasDragActive = selectDragActive.current
-    const wasDragPending = selectDragPending.current
-    selectDragActive.current = false
-    selectDragPending.current = false
-
-    if (wasDragActive) {
-      // End drag — commit live set to state
-      flushSelection()
-      return
-    }
-
-    // If long press was triggered, the pointerUp just ends the gesture — don't open viewer
-    if (longPressTriggered.current) {
-      longPressTriggered.current = false
-      return
-    }
-
-    // Simple tap in select mode (pending drag that never moved) — toggle selection
-    if (selectMode && wasDragPending) {
-      const id = photoIdAtPoint(e.clientX, e.clientY)
-      if (id) togglePhotoSelection(id)
-    }
-  }, [selectMode, photoIdAtPoint, togglePhotoSelection, flushSelection, cancelLongPress, stopAutoScroll])
-
-  const handlePointerCancel = useCallback(() => {
-    cancelLongPress()
-    stopAutoScroll()
-    selectDragPending.current = false
-    if (selectDragActive.current) {
-      selectDragActive.current = false
-      flushSelection()
-    }
-  }, [cancelLongPress, stopAutoScroll, flushSelection])
-
-  // Keep live counter in sync with selectedIds state changes (tap toggle, flush, exit).
-  useEffect(() => {
-    setLiveCount(selectedIds.size)
-  }, [selectedIds])
-
-  // Sync CSS classes when selectedIds state changes (e.g. after toggle via tap).
-  useEffect(() => {
-    const grid = masonryRef.current
-    if (!grid) return
-    const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
-    for (const item of items) {
-      const id = item.dataset.photoId!
-      if (selectedIds.has(id)) {
-        item.classList.add('photo-selected')
-      } else {
-        item.classList.remove('photo-selected')
-      }
-    }
-  }, [selectedIds])
-
-  // Cleanup auto-scroll on unmount
-  useEffect(() => {
-    return () => {
-      stopAutoScroll()
-      cancelLongPress()
-    }
-  }, [stopAutoScroll, cancelLongPress])
 
   // Build columns — reverse photos so oldest is at top, newest at bottom
   const gap = colCount >= 6 ? 2 : 3
@@ -799,10 +456,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
             minHeight: '70vh',
             ...(selectMode ? { touchAction: 'none' } : {}),
           }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
+          {...pointerHandlers}
         >
           {columns.map((col, colIdx) => (
             <div
@@ -1242,6 +896,35 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           </svg>
         </button>
 
+        {/* Folders button */}
+        <button
+          onClick={() => onOpenFolders?.()}
+          className="rounded-full transition-all duration-200"
+          style={{
+            width: '36px',
+            height: '36px',
+            marginTop: '4px',
+            background: 'rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(12px)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.4)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.25)'
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+          </svg>
+        </button>
+
         {/* Upload button */}
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -1462,443 +1145,5 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   )
 }
 
-// ============================================================
-// Selection bar button component
-// ============================================================
-
-function SelectBarBtn({ children, onClick, disabled, title, variant }: {
-  children: React.ReactNode
-  onClick?: () => void
-  disabled?: boolean
-  title?: string
-  variant?: 'danger'
-}) {
-  const bg = variant === 'danger' ? 'rgba(207, 86, 54, 0.25)' : 'rgba(255, 255, 255, 0.1)'
-  const bgHover = variant === 'danger' ? 'rgba(207, 86, 54, 0.4)' : 'rgba(255, 255, 255, 0.2)'
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      title={title}
-      style={{
-        width: '34px',
-        height: '34px',
-        borderRadius: '50%',
-        background: bg,
-        border: 'none',
-        color: disabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
-        cursor: disabled ? 'default' : 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        transition: 'background 0.15s ease',
-      }}
-      onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLElement).style.background = bgHover }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg }}
-    >
-      {children}
-    </button>
-  )
-}
-
-// ============================================================
-// Modal overlay for selection actions
-// ============================================================
-
-// ============================================================
-// Album picker modal with "create new" option
-// ============================================================
-
-function AlbumPickerModal({ albums, onSelect, onClose }: {
-  albums: Album[]
-  onSelect: (albumId: string) => void
-  onClose: () => void
-}) {
-  const [newName, setNewName] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  async function createAndSelect() {
-    if (!newName.trim() || creating) return
-    setCreating(true)
-    try {
-      const res = await apiFetch('/api/v1/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim() }),
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      onSelect(data.id)
-    } catch { /* ignore */ }
-    finally { setCreating(false) }
-  }
-
-  return (
-    <SelectModalOverlay onClose={onClose}>
-      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
-        {t('add_to_album')}
-      </div>
-
-      {/* Create new album row */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-        <input
-          type="text"
-          value={newName}
-          onChange={e => setNewName(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') createAndSelect() }}
-          placeholder={t('album_name')}
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '10px',
-            color: 'rgba(255,255,255,0.9)',
-            fontSize: '14px',
-            fontFamily: 'var(--font-sans)',
-            outline: 'none',
-          }}
-          autoFocus
-        />
-        <button
-          className="viewer-modal-btn-primary"
-          onClick={createAndSelect}
-          disabled={!newName.trim() || creating}
-          style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}
-        >
-          {creating ? '...' : t('create_album')}
-        </button>
-      </div>
-
-      {/* Existing albums list */}
-      {albums.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {albums.map(a => (
-            <button
-              key={a.id}
-              onClick={() => onSelect(a.id)}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 12px',
-                background: 'rgba(255,255,255,0.06)',
-                border: 'none',
-                borderRadius: '10px',
-                color: 'rgba(255,255,255,0.85)',
-                fontSize: '14px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-                textAlign: 'left',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
-            >
-              <span>{a.name}</span>
-              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>{a.photo_count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </SelectModalOverlay>
-  )
-}
-
-// ============================================================
-// Modal overlay for selection actions
-// ============================================================
-
-function SelectModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(4px)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div
-        style={{
-          background: 'rgba(20, 16, 13, 0.98)',
-          borderRadius: '20px',
-          padding: '24px',
-          border: '1px solid rgba(255,255,255,0.08)',
-          width: 'min(90vw, 380px)',
-          maxHeight: '80vh',
-          overflowY: 'auto',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// ============================================================
-// Shared input style for modal fields
-// ============================================================
-
-const modalInputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 12px',
-  background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: '10px',
-  color: 'rgba(255,255,255,0.9)',
-  fontSize: '14px',
-  fontFamily: 'var(--font-sans)',
-  outline: 'none',
-}
-
-// ============================================================
-// Bulk Share Modal
-// ============================================================
-
-function BulkShareModal({ photoIds, onClose, onDone }: { photoIds: string[]; onClose: () => void; onDone: () => void }) {
-  const [albumName, setAlbumName] = useState(() => {
-    const d = new Date()
-    return `Shared ${d.toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-US')}`
-  })
-  const [password, setPassword] = useState('')
-  const [expiresDays, setExpiresDays] = useState('')
-  const [shareUrl, setShareUrl] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  async function createShare() {
-    if (!albumName.trim() || creating) return
-    setCreating(true)
-    try {
-      // 1. Create album
-      const albumRes = await apiFetch('/api/v1/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: albumName.trim() }),
-      })
-      if (!albumRes.ok) return
-      const albumData = await albumRes.json()
-
-      // 2. Add photos to album
-      await apiFetch(`/api/v1/albums/${albumData.id}/photos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo_ids: photoIds }),
-      })
-
-      // 3. Create share link
-      const shareBody: Record<string, unknown> = { type: 'album', album_id: albumData.id }
-      if (password.trim()) shareBody.password = password.trim()
-      if (expiresDays) shareBody.expires_days = parseInt(expiresDays)
-
-      const shareRes = await apiFetch('/api/v1/shares', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shareBody),
-      })
-      if (!shareRes.ok) return
-      const shareData = await shareRes.json()
-      setShareUrl(location.origin + shareData.url)
-    } catch { /* ignore */ }
-    finally { setCreating(false) }
-  }
-
-  function copyUrl() {
-    navigator.clipboard.writeText(shareUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <SelectModalOverlay onClose={onClose}>
-      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
-        {t('share')} ({photoIds.length})
-      </div>
-
-      {!shareUrl ? (
-        <>
-          <div style={{ marginBottom: '12px' }}>
-            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('album_name')}</div>
-            <input type="text" value={albumName} onChange={e => setAlbumName(e.target.value)} style={modalInputStyle} />
-          </div>
-          <div style={{ marginBottom: '12px' }}>
-            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('share_password')}</div>
-            <input type="text" value={password} onChange={e => setPassword(e.target.value)} style={modalInputStyle} placeholder="..." />
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('share_expires')}</div>
-            <input type="number" value={expiresDays} onChange={e => setExpiresDays(e.target.value)} style={modalInputStyle} min="1" placeholder="..." />
-          </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button className="viewer-modal-btn" onClick={onClose}>{t('cancel')}</button>
-            <button className="viewer-modal-btn-primary" onClick={createShare} disabled={creating || !albumName.trim()}>
-              {creating ? t('creating') : t('create_share')}
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div style={{ marginBottom: '12px' }}>
-            <input type="text" value={shareUrl} readOnly style={modalInputStyle} onClick={e => (e.target as HTMLInputElement).select()} />
-          </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button className="viewer-modal-btn" onClick={onDone}>{t('close')}</button>
-            <button className="viewer-modal-btn-primary" onClick={copyUrl}>
-              {copied ? t('copied') : t('copy_link')}
-            </button>
-          </div>
-        </>
-      )}
-    </SelectModalOverlay>
-  )
-}
-
-// ============================================================
-// Bulk Kiosk Modal — creates share without password, shows kiosk URL with color picker
-// ============================================================
-
-const KIOSK_PRESETS = [
-  { color: '#ffffff', label: 'White' },
-  { color: '#000000', label: 'Black' },
-  { color: '#1a1a2e', label: 'Navy' },
-  { color: '#2C1F14', label: 'Cocoa' },
-]
-
-function BulkKioskModal({ photoIds, onClose, onDone }: { photoIds: string[]; onClose: () => void; onDone: () => void }) {
-  const [bgColor, setBgColor] = useState('#000000')
-  const [kioskUrl, setKioskUrl] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const albumName = (() => {
-    const d = new Date()
-    return `Kiosk ${d.toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-US')}`
-  })()
-
-  async function createKiosk() {
-    if (creating) return
-    setCreating(true)
-    try {
-      // 1. Create album
-      const albumRes = await apiFetch('/api/v1/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: albumName }),
-      })
-      if (!albumRes.ok) return
-      const albumData = await albumRes.json()
-
-      // 2. Add photos
-      await apiFetch(`/api/v1/albums/${albumData.id}/photos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo_ids: photoIds }),
-      })
-
-      // 3. Create share (no password)
-      const shareRes = await apiFetch('/api/v1/shares', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'album', album_id: albumData.id }),
-      })
-      if (!shareRes.ok) return
-      const shareData = await shareRes.json()
-
-      // 4. Build kiosk URL
-      const hex = bgColor.replace('#', '')
-      const url = `${location.origin}/k/${shareData.code}${hex !== 'ffffff' ? `?bg=${hex}` : ''}`
-      setKioskUrl(url)
-    } catch { /* ignore */ }
-    finally { setCreating(false) }
-  }
-
-  function copyUrl() {
-    navigator.clipboard.writeText(kioskUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  // Update URL live when color changes (if already created)
-  useEffect(() => {
-    if (!kioskUrl) return
-    // Extract code from existing URL
-    const match = kioskUrl.match(/\/k\/([^?]+)/)
-    if (!match) return
-    const code = match[1]
-    const hex = bgColor.replace('#', '')
-    setKioskUrl(`${location.origin}/k/${code}${hex !== 'ffffff' ? `?bg=${hex}` : ''}`)
-  }, [bgColor])
-
-  return (
-    <SelectModalOverlay onClose={onClose}>
-      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
-        {t('kiosk')} ({photoIds.length})
-      </div>
-
-      {/* Color picker */}
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>{t('kiosk_bg_color')}</div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
-          {KIOSK_PRESETS.map(p => (
-            <button
-              key={p.color}
-              onClick={() => setBgColor(p.color)}
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: p.color,
-                border: bgColor === p.color ? '2px solid rgba(183, 101, 57, 0.9)' : '1px solid rgba(255,255,255,0.15)',
-                cursor: 'pointer',
-                flexShrink: 0,
-                boxShadow: bgColor === p.color ? '0 0 0 2px rgba(183, 101, 57, 0.3)' : 'none',
-              }}
-              title={p.label}
-            />
-          ))}
-          <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
-            <input
-              type="color"
-              value={bgColor}
-              onChange={e => setBgColor(e.target.value)}
-              style={{
-                width: '32px',
-                height: '32px',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                padding: 0,
-                background: 'transparent',
-              }}
-            />
-          </div>
-          <input
-            type="text"
-            value={bgColor}
-            onChange={e => { if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) setBgColor(e.target.value) }}
-            style={{ ...modalInputStyle, width: '90px', flexShrink: 0 }}
-          />
-        </div>
-      </div>
-
-      {!kioskUrl ? (
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button className="viewer-modal-btn" onClick={onClose}>{t('cancel')}</button>
-          <button className="viewer-modal-btn-primary" onClick={createKiosk} disabled={creating}>
-            {creating ? t('creating') : t('create_share')}
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={{ marginBottom: '12px' }}>
-            <input type="text" value={kioskUrl} readOnly style={modalInputStyle} onClick={e => (e.target as HTMLInputElement).select()} />
-          </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button className="viewer-modal-btn" onClick={onDone}>{t('close')}</button>
-            <button className="viewer-modal-btn-primary" onClick={copyUrl}>
-              {copied ? t('copied') : t('copy_link')}
-            </button>
-          </div>
-        </>
-      )}
-    </SelectModalOverlay>
-  )
-}
+// SelectBarBtn, AlbumPickerModal, BulkShareModal, BulkKioskModal, SelectModalOverlay, modalInputStyle
+// are imported from '../components/SelectionBar'
