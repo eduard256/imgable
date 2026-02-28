@@ -84,6 +84,8 @@ type PhotoListParams struct {
 	Sort       string // "date", "created", "size"
 	Order      string // "desc", "asc"
 	Bounds     *GeoBounds // Geographic filter for map view
+	FolderPath      string // Filter by original_path prefix (folder and all subfolders)
+	FolderRecursive bool   // If true, include subfolders; if false, only direct photos in FolderPath
 }
 
 // GeoBounds represents geographic boundaries for filtering photos.
@@ -187,6 +189,20 @@ func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]Pho
 		conditions = append(conditions, fmt.Sprintf("is_favorite = $%d", argNum))
 		args = append(args, *params.Favorite)
 		argNum++
+	}
+
+	// Folder path filter
+	if params.FolderPath != "" {
+		conditions = append(conditions, fmt.Sprintf("original_path LIKE $%d", argNum))
+		args = append(args, params.FolderPath+"/%")
+		argNum++
+
+		// Non-recursive: exclude photos in subfolders
+		if !params.FolderRecursive {
+			conditions = append(conditions, fmt.Sprintf("original_path NOT LIKE $%d", argNum))
+			args = append(args, params.FolderPath+"/%/%")
+			argNum++
+		}
 	}
 
 	// Geographic bounds filter (for map view)

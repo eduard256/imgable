@@ -20,9 +20,10 @@ type Folder struct {
 
 // FolderListing represents the contents of a folder at a specific path.
 type FolderListing struct {
-	Path       string   `json:"path"`
-	Folders    []Folder `json:"folders"`
-	PhotoCount int      `json:"photo_count"` // Photos directly in this folder (not in subfolders)
+	Path             string   `json:"path"`
+	Folders          []Folder `json:"folders"`
+	PhotoCount       int      `json:"photo_count"`        // Total photos in this folder and all subfolders
+	DirectPhotoCount int      `json:"direct_photo_count"` // Photos only in this folder (not in subfolders)
 }
 
 // GetFolderListing returns subfolders and direct photo count for the given path.
@@ -99,10 +100,17 @@ func (s *Storage) GetFolderListing(ctx context.Context, path string) (*FolderLis
 		return folders[i].Name < folders[j].Name
 	})
 
+	// Total photo count = direct photos + all subfolder photos
+	totalPhotos := directPhotos
+	for _, f := range folders {
+		totalPhotos += f.PhotoCount
+	}
+
 	return &FolderListing{
-		Path:       path,
-		Folders:    folders,
-		PhotoCount: directPhotos,
+		Path:             path,
+		Folders:          folders,
+		PhotoCount:       totalPhotos,
+		DirectPhotoCount: directPhotos,
 	}, nil
 }
 

@@ -34,9 +34,10 @@ type FolderItem struct {
 
 // FoldersResponse represents the response for the folders endpoint.
 type FoldersResponse struct {
-	Path       string       `json:"path"`
-	Folders    []FolderItem `json:"folders"`
-	PhotoCount int          `json:"photo_count"`
+	Path             string       `json:"path"`
+	Folders          []FolderItem `json:"folders"`
+	PhotoCount       int          `json:"photo_count"`
+	DirectPhotoCount int          `json:"direct_photo_count"`
 }
 
 // List handles GET /api/v1/folders.
@@ -74,8 +75,9 @@ func (h *FoldersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.OK(w, FoldersResponse{
-		Path:       listing.Path,
-		Folders:    folders,
-		PhotoCount: listing.PhotoCount,
+		Path:             listing.Path,
+		Folders:          folders,
+		PhotoCount:       listing.PhotoCount,
+		DirectPhotoCount: listing.DirectPhotoCount,
 	})
 }

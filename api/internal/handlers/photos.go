@@ -90,14 +90,21 @@ func (h *PhotosHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
 //   - sort: Sort by "date", "created", or "size"
 //   - order: Sort order "desc" or "asc"
 //   - north, south, east, west: Geographic bounds filter (all required together)
+//   - path: Filter by folder path (returns photos from this folder and all subfolders by default)
+//   - recursive: Include subfolders "true" (default) or "false" (only direct photos)
 func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
+	recursiveStr := r.URL.Query().Get("recursive")
+	recursive := recursiveStr != "false" // default true
+
 	params := storage.PhotoListParams{
-		Limit:  parseIntParam(r, "limit", 100),
-		Month:  r.URL.Query().Get("month"),
-		Type:   r.URL.Query().Get("type"),
-		Sort:   r.URL.Query().Get("sort"),
-		Order:  r.URL.Query().Get("order"),
+		Limit:           parseIntParam(r, "limit", 100),
+		Month:           r.URL.Query().Get("month"),
+		Type:            r.URL.Query().Get("type"),
+		Sort:            r.URL.Query().Get("sort"),
+		Order:           r.URL.Query().Get("order"),
+		FolderPath:      r.URL.Query().Get("path"),
+		FolderRecursive: recursive,
 	}
 
 	// Parse cursor
