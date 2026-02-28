@@ -365,23 +365,20 @@ func (h *PhotosHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete handles DELETE /api/v1/photos/:id.
-// Deletes a single photo.
+// Soft-deletes a photo (moves to trash).
 func (h *PhotosHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	photo, err := h.storage.DeletePhoto(r.Context(), id)
+	found, err := h.storage.SoftDeletePhoto(r.Context(), id)
 	if err != nil {
-		h.logger.Error("failed to delete photo", slog.Any("error", err))
+		h.logger.Error("failed to soft-delete photo", slog.Any("error", err))
 		response.InternalError(w)
 		return
 	}
-	if photo == nil {
+	if !found {
 		response.NotFound(w, "photo not found")
 		return
 	}
-
-	// Delete files from disk
-	h.deletePhotoFiles(photo)
 
 	response.OKStatus(w)
 }
@@ -397,7 +394,7 @@ type BulkDeleteResponse struct {
 }
 
 // BulkDelete handles DELETE /api/v1/photos.
-// Deletes multiple photos at once.
+// Soft-deletes multiple photos at once (moves to trash).
 func (h *PhotosHandler) BulkDelete(w http.ResponseWriter, r *http.Request) {
 	var req BulkDeleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -415,19 +412,14 @@ func (h *PhotosHandler) BulkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	photos, err := h.storage.DeletePhotos(r.Context(), req.IDs)
+	deleted, err := h.storage.SoftDeletePhotos(r.Context(), req.IDs)
 	if err != nil {
-		h.logger.Error("failed to delete photos", slog.Any("error", err))
+		h.logger.Error("failed to soft-delete photos", slog.Any("error", err))
 		response.InternalError(w)
 		return
 	}
 
-	// Delete files from disk
-	for _, photo := range photos {
-		h.deletePhotoFiles(&photo)
-	}
-
-	response.OK(w, BulkDeleteResponse{Deleted: len(photos)})
+	response.OK(w, BulkDeleteResponse{Deleted: int(deleted)})
 }
 
 // AddFavorite handles POST /api/v1/photos/:id/favorite.

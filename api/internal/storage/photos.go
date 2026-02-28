@@ -500,55 +500,30 @@ func (s *Storage) UpdatePhotoComment(ctx context.Context, id string, comment *st
 	return err
 }
 
-// DeletePhoto deletes a photo and returns its file paths for cleanup.
-func (s *Storage) DeletePhoto(ctx context.Context, id string) (*Photo, error) {
-	// Get photo info first
-	photo, err := s.GetPhoto(ctx, id)
+// SoftDeletePhoto marks a photo as deleted (moves to trash).
+// Sets deleted_at = NOW(). Triggers handle album/place cleanup.
+func (s *Storage) SoftDeletePhoto(ctx context.Context, id string) (bool, error) {
+	result, err := s.db.Exec(ctx,
+		"UPDATE photos SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL", id)
 	if err != nil {
-		return nil, err
+		return false, fmt.Errorf("soft delete photo: %w", err)
 	}
-	if photo == nil {
-		return nil, nil
-	}
-
-	// Delete from database (CASCADE handles album_photos)
-	_, err = s.db.Exec(ctx, "DELETE FROM photos WHERE id = $1", id)
-	if err != nil {
-		return nil, fmt.Errorf("delete photo: %w", err)
-	}
-
-	return photo, nil
+	return result.RowsAffected() > 0, nil
 }
 
-// DeletePhotos deletes multiple photos and returns their info for cleanup.
-func (s *Storage) DeletePhotos(ctx context.Context, ids []string) ([]Photo, error) {
+// SoftDeletePhotos marks multiple photos as deleted (moves to trash).
+// Returns the number of photos actually moved to trash.
+func (s *Storage) SoftDeletePhotos(ctx context.Context, ids []string) (int64, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return 0, nil
 	}
 
-	// Get photos info first
-	var photos []Photo
-	for _, id := range ids {
-		photo, err := s.GetPhoto(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if photo != nil {
-			photos = append(photos, *photo)
-		}
-	}
-
-	if len(photos) == 0 {
-		return nil, nil
-	}
-
-	// Delete from database
-	_, err := s.db.Exec(ctx, "DELETE FROM photos WHERE id = ANY($1)", ids)
+	result, err := s.db.Exec(ctx,
+		"UPDATE photos SET deleted_at = NOW() WHERE id = ANY($1) AND deleted_at IS NULL", ids)
 	if err != nil {
-		return nil, fmt.Errorf("delete photos: %w", err)
+		return 0, fmt.Errorf("soft delete photos: %w", err)
 	}
-
-	return photos, nil
+	return result.RowsAffected(), nil
 }
 
 // SetPhotoFavorite sets the favorite status of a photo.
