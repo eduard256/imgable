@@ -1418,42 +1418,11 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
       {/* Album picker modal */}
       {showAlbumPicker && (
-        <SelectModalOverlay onClose={() => setShowAlbumPicker(false)}>
-          <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
-            {t('add_to_album')}
-          </div>
-          {albumList.length === 0 ? (
-            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>{t('no_albums')}</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {albumList.map(a => (
-                <button
-                  key={a.id}
-                  onClick={() => handleAddToAlbum(a.id)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '10px 12px',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: 'none',
-                    borderRadius: '10px',
-                    color: 'rgba(255,255,255,0.85)',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-sans)',
-                    textAlign: 'left',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
-                >
-                  <span>{a.name}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>{a.photo_count}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </SelectModalOverlay>
+        <AlbumPickerModal
+          albums={albumList}
+          onSelect={handleAddToAlbum}
+          onClose={() => setShowAlbumPicker(false)}
+        />
       )}
 
       {/* Share modal */}
@@ -1529,6 +1498,109 @@ function SelectBarBtn({ children, onClick, disabled, title, variant }: {
     >
       {children}
     </button>
+  )
+}
+
+// ============================================================
+// Modal overlay for selection actions
+// ============================================================
+
+// ============================================================
+// Album picker modal with "create new" option
+// ============================================================
+
+function AlbumPickerModal({ albums, onSelect, onClose }: {
+  albums: Album[]
+  onSelect: (albumId: string) => void
+  onClose: () => void
+}) {
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  async function createAndSelect() {
+    if (!newName.trim() || creating) return
+    setCreating(true)
+    try {
+      const res = await apiFetch('/api/v1/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim() }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      onSelect(data.id)
+    } catch { /* ignore */ }
+    finally { setCreating(false) }
+  }
+
+  return (
+    <SelectModalOverlay onClose={onClose}>
+      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
+        {t('add_to_album')}
+      </div>
+
+      {/* Create new album row */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <input
+          type="text"
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') createAndSelect() }}
+          placeholder={t('album_name')}
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '10px',
+            color: 'rgba(255,255,255,0.9)',
+            fontSize: '14px',
+            fontFamily: 'var(--font-sans)',
+            outline: 'none',
+          }}
+          autoFocus
+        />
+        <button
+          className="viewer-modal-btn-primary"
+          onClick={createAndSelect}
+          disabled={!newName.trim() || creating}
+          style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}
+        >
+          {creating ? '...' : t('create_album')}
+        </button>
+      </div>
+
+      {/* Existing albums list */}
+      {albums.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {albums.map(a => (
+            <button
+              key={a.id}
+              onClick={() => onSelect(a.id)}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 12px',
+                background: 'rgba(255,255,255,0.06)',
+                border: 'none',
+                borderRadius: '10px',
+                color: 'rgba(255,255,255,0.85)',
+                fontSize: '14px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-sans)',
+                textAlign: 'left',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+            >
+              <span>{a.name}</span>
+              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>{a.photo_count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </SelectModalOverlay>
   )
 }
 
