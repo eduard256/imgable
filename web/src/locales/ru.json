@@ -143,5 +143,11 @@
   "share_expired": "Ссылка устарела",
   "share_not_found": "Ссылка не найдена",
   "share_photos_count": "фото",
-  "selected_count": "выбрано"
+  "selected_count": "выбрано",
+  "kiosk": "Киоск",
+  "kiosk_bg_color": "Цвет фона",
+  "creating": "Создание...",
+  "copy_link": "Копировать ссылку",
+  "delete_selected_confirm": "Удалить {n} фото?",
+  "copied": "Скопировано"
 }

@@ -547,6 +547,70 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     })
   }, [])
 
+  // ============================================================
+  // Selection action modals state
+  // ============================================================
+  const [showAlbumPicker, setShowAlbumPicker] = useState(false)
+  const [albumList, setAlbumList] = useState<Album[]>([])
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [showKioskModal, setShowKioskModal] = useState(false)
+
+  // Bulk delete selected photos
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    const msg = t('delete_selected_confirm').replace('{n}', String(selectedIds.size))
+    if (!confirm(msg)) return
+    try {
+      await apiFetch('/api/v1/photos', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      })
+      setPhotos(prev => prev.filter(p => !selectedIds.has(p.id)))
+      exitSelectMode()
+    } catch { /* ignore */ }
+  }, [selectedIds, exitSelectMode])
+
+  // Bulk favorite selected photos
+  const handleBulkFavorite = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    const ids = Array.from(selectedIds)
+    // Fire in batches of 10
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = ids.slice(i, i + 10)
+      await Promise.all(batch.map(id =>
+        apiFetch(`/api/v1/photos/${id}/favorite`, { method: 'POST' }).catch(() => {})
+      ))
+    }
+    setPhotos(prev => prev.map(p => selectedIds.has(p.id) ? { ...p, is_favorite: true } : p))
+    exitSelectMode()
+  }, [selectedIds, exitSelectMode])
+
+  // Open album picker modal
+  const handleOpenAlbumPicker = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/v1/albums')
+      if (!res.ok) return
+      const data = await res.json()
+      setAlbumList((data.albums ?? []).filter((a: Album) => a.type === 'manual' || a.type === 'favorites'))
+      setShowAlbumPicker(true)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Add selected photos to an album
+  const handleAddToAlbum = useCallback(async (albumId: string) => {
+    if (selectedIds.size === 0) return
+    try {
+      await apiFetch(`/api/v1/albums/${albumId}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_ids: Array.from(selectedIds) }),
+      })
+      setShowAlbumPicker(false)
+      exitSelectMode()
+    } catch { /* ignore */ }
+  }, [selectedIds, exitSelectMode])
+
   // Pointer event handlers for the masonry grid.
   // Unified: works for both mouse and touch via pointer events.
 
@@ -1259,7 +1323,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       {/* Selection bottom bar */}
       {selectMode && (
         <div
-          className="fixed z-30 flex items-center gap-3"
+          className="fixed z-30 flex items-center"
           style={{
             bottom: '24px',
             left: '50%',
@@ -1267,44 +1331,147 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
             background: 'rgba(44, 31, 20, 0.75)',
             backdropFilter: 'blur(16px)',
             borderRadius: '24px',
-            padding: '10px 20px',
-            minWidth: '180px',
-            justifyContent: 'center',
+            padding: '6px 10px',
+            gap: '4px',
             animation: 'selectBarSlideUp 0.25s ease-out',
           }}
         >
+          {/* Left group: Add to Album, Favorite */}
+          <SelectBarBtn
+            disabled={liveCount === 0}
+            onClick={handleOpenAlbumPicker}
+            title={t('add_to_album')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+              <line x1="12" y1="11" x2="12" y2="17" />
+              <line x1="9" y1="14" x2="15" y2="14" />
+            </svg>
+          </SelectBarBtn>
+          <SelectBarBtn
+            disabled={liveCount === 0}
+            onClick={handleBulkFavorite}
+            title={t('favorite')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+            </svg>
+          </SelectBarBtn>
+
+          {/* Counter */}
           <span style={{
             color: 'rgba(255, 255, 255, 0.9)',
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: 400,
             whiteSpace: 'nowrap',
+            padding: '0 8px',
+            minWidth: '60px',
+            textAlign: 'center',
           }}>
             {liveCount} {t('selected_count')}
           </span>
 
-          {/* Close button */}
-          <button
-            onClick={exitSelectMode}
-            style={{
-              background: 'rgba(255, 255, 255, 0.15)',
-              border: 'none',
-              borderRadius: '50%',
-              width: '28px',
-              height: '28px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              marginLeft: '4px',
-              flexShrink: 0,
-            }}
+          {/* Right group: Share, Kiosk, Delete, Close */}
+          <SelectBarBtn
+            disabled={liveCount === 0}
+            onClick={() => setShowShareModal(true)}
+            title={t('share')}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+          </SelectBarBtn>
+          <SelectBarBtn
+            disabled={liveCount === 0}
+            onClick={() => setShowKioskModal(true)}
+            title={t('kiosk')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+              <line x1="12" y1="17" x2="12" y2="21" />
+            </svg>
+          </SelectBarBtn>
+          <SelectBarBtn
+            disabled={liveCount === 0}
+            onClick={handleBulkDelete}
+            title={t('delete')}
+            variant="danger"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+            </svg>
+          </SelectBarBtn>
+
+          {/* Close / exit select mode */}
+          <SelectBarBtn onClick={exitSelectMode} title={t('close')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </SelectBarBtn>
         </div>
+      )}
+
+      {/* Album picker modal */}
+      {showAlbumPicker && (
+        <SelectModalOverlay onClose={() => setShowAlbumPicker(false)}>
+          <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
+            {t('add_to_album')}
+          </div>
+          {albumList.length === 0 ? (
+            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>{t('no_albums')}</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {albumList.map(a => (
+                <button
+                  key={a.id}
+                  onClick={() => handleAddToAlbum(a.id)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: 'none',
+                    borderRadius: '10px',
+                    color: 'rgba(255,255,255,0.85)',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-sans)',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+                >
+                  <span>{a.name}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>{a.photo_count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </SelectModalOverlay>
+      )}
+
+      {/* Share modal */}
+      {showShareModal && (
+        <BulkShareModal
+          photoIds={Array.from(selectedIds)}
+          onClose={() => setShowShareModal(false)}
+          onDone={() => { setShowShareModal(false); exitSelectMode() }}
+        />
+      )}
+
+      {/* Kiosk modal */}
+      {showKioskModal && (
+        <BulkKioskModal
+          photoIds={Array.from(selectedIds)}
+          onClose={() => setShowKioskModal(false)}
+          onDone={() => { setShowKioskModal(false); exitSelectMode() }}
+        />
       )}
 
       {/* Upload manager — handles drag & drop + toast progress */}
@@ -1323,5 +1490,343 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
         />
       )}
     </div>
+  )
+}
+
+// ============================================================
+// Selection bar button component
+// ============================================================
+
+function SelectBarBtn({ children, onClick, disabled, title, variant }: {
+  children: React.ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  title?: string
+  variant?: 'danger'
+}) {
+  const bg = variant === 'danger' ? 'rgba(207, 86, 54, 0.25)' : 'rgba(255, 255, 255, 0.1)'
+  const bgHover = variant === 'danger' ? 'rgba(207, 86, 54, 0.4)' : 'rgba(255, 255, 255, 0.2)'
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      title={title}
+      style={{
+        width: '34px',
+        height: '34px',
+        borderRadius: '50%',
+        background: bg,
+        border: 'none',
+        color: disabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
+        cursor: disabled ? 'default' : 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        transition: 'background 0.15s ease',
+      }}
+      onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLElement).style.background = bgHover }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ============================================================
+// Modal overlay for selection actions
+// ============================================================
+
+function SelectModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(4px)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        style={{
+          background: 'rgba(20, 16, 13, 0.98)',
+          borderRadius: '20px',
+          padding: '24px',
+          border: '1px solid rgba(255,255,255,0.08)',
+          width: 'min(90vw, 380px)',
+          maxHeight: '80vh',
+          overflowY: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// Shared input style for modal fields
+// ============================================================
+
+const modalInputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: '10px',
+  color: 'rgba(255,255,255,0.9)',
+  fontSize: '14px',
+  fontFamily: 'var(--font-sans)',
+  outline: 'none',
+}
+
+// ============================================================
+// Bulk Share Modal
+// ============================================================
+
+function BulkShareModal({ photoIds, onClose, onDone }: { photoIds: string[]; onClose: () => void; onDone: () => void }) {
+  const [albumName, setAlbumName] = useState(() => {
+    const d = new Date()
+    return `Shared ${d.toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-US')}`
+  })
+  const [password, setPassword] = useState('')
+  const [expiresDays, setExpiresDays] = useState('')
+  const [shareUrl, setShareUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  async function createShare() {
+    if (!albumName.trim() || creating) return
+    setCreating(true)
+    try {
+      // 1. Create album
+      const albumRes = await apiFetch('/api/v1/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: albumName.trim() }),
+      })
+      if (!albumRes.ok) return
+      const albumData = await albumRes.json()
+
+      // 2. Add photos to album
+      await apiFetch(`/api/v1/albums/${albumData.id}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_ids: photoIds }),
+      })
+
+      // 3. Create share link
+      const shareBody: Record<string, unknown> = { type: 'album', album_id: albumData.id }
+      if (password.trim()) shareBody.password = password.trim()
+      if (expiresDays) shareBody.expires_days = parseInt(expiresDays)
+
+      const shareRes = await apiFetch('/api/v1/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shareBody),
+      })
+      if (!shareRes.ok) return
+      const shareData = await shareRes.json()
+      setShareUrl(location.origin + shareData.url)
+    } catch { /* ignore */ }
+    finally { setCreating(false) }
+  }
+
+  function copyUrl() {
+    navigator.clipboard.writeText(shareUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <SelectModalOverlay onClose={onClose}>
+      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
+        {t('share')} ({photoIds.length})
+      </div>
+
+      {!shareUrl ? (
+        <>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('album_name')}</div>
+            <input type="text" value={albumName} onChange={e => setAlbumName(e.target.value)} style={modalInputStyle} />
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('share_password')}</div>
+            <input type="text" value={password} onChange={e => setPassword(e.target.value)} style={modalInputStyle} placeholder="..." />
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{t('share_expires')}</div>
+            <input type="number" value={expiresDays} onChange={e => setExpiresDays(e.target.value)} style={modalInputStyle} min="1" placeholder="..." />
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button className="viewer-modal-btn" onClick={onClose}>{t('cancel')}</button>
+            <button className="viewer-modal-btn-primary" onClick={createShare} disabled={creating || !albumName.trim()}>
+              {creating ? t('creating') : t('create_share')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ marginBottom: '12px' }}>
+            <input type="text" value={shareUrl} readOnly style={modalInputStyle} onClick={e => (e.target as HTMLInputElement).select()} />
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button className="viewer-modal-btn" onClick={onDone}>{t('close')}</button>
+            <button className="viewer-modal-btn-primary" onClick={copyUrl}>
+              {copied ? t('copied') : t('copy_link')}
+            </button>
+          </div>
+        </>
+      )}
+    </SelectModalOverlay>
+  )
+}
+
+// ============================================================
+// Bulk Kiosk Modal — creates share without password, shows kiosk URL with color picker
+// ============================================================
+
+const KIOSK_PRESETS = [
+  { color: '#ffffff', label: 'White' },
+  { color: '#000000', label: 'Black' },
+  { color: '#1a1a2e', label: 'Navy' },
+  { color: '#2C1F14', label: 'Cocoa' },
+]
+
+function BulkKioskModal({ photoIds, onClose, onDone }: { photoIds: string[]; onClose: () => void; onDone: () => void }) {
+  const [bgColor, setBgColor] = useState('#000000')
+  const [kioskUrl, setKioskUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const albumName = (() => {
+    const d = new Date()
+    return `Kiosk ${d.toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-US')}`
+  })()
+
+  async function createKiosk() {
+    if (creating) return
+    setCreating(true)
+    try {
+      // 1. Create album
+      const albumRes = await apiFetch('/api/v1/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: albumName }),
+      })
+      if (!albumRes.ok) return
+      const albumData = await albumRes.json()
+
+      // 2. Add photos
+      await apiFetch(`/api/v1/albums/${albumData.id}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_ids: photoIds }),
+      })
+
+      // 3. Create share (no password)
+      const shareRes = await apiFetch('/api/v1/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'album', album_id: albumData.id }),
+      })
+      if (!shareRes.ok) return
+      const shareData = await shareRes.json()
+
+      // 4. Build kiosk URL
+      const hex = bgColor.replace('#', '')
+      const url = `${location.origin}/k/${shareData.code}${hex !== 'ffffff' ? `?bg=${hex}` : ''}`
+      setKioskUrl(url)
+    } catch { /* ignore */ }
+    finally { setCreating(false) }
+  }
+
+  function copyUrl() {
+    navigator.clipboard.writeText(kioskUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Update URL live when color changes (if already created)
+  useEffect(() => {
+    if (!kioskUrl) return
+    // Extract code from existing URL
+    const match = kioskUrl.match(/\/k\/([^?]+)/)
+    if (!match) return
+    const code = match[1]
+    const hex = bgColor.replace('#', '')
+    setKioskUrl(`${location.origin}/k/${code}${hex !== 'ffffff' ? `?bg=${hex}` : ''}`)
+  }, [bgColor])
+
+  return (
+    <SelectModalOverlay onClose={onClose}>
+      <div style={{ marginBottom: '16px', color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: 400 }}>
+        {t('kiosk')} ({photoIds.length})
+      </div>
+
+      {/* Color picker */}
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>{t('kiosk_bg_color')}</div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
+          {KIOSK_PRESETS.map(p => (
+            <button
+              key={p.color}
+              onClick={() => setBgColor(p.color)}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: p.color,
+                border: bgColor === p.color ? '2px solid rgba(183, 101, 57, 0.9)' : '1px solid rgba(255,255,255,0.15)',
+                cursor: 'pointer',
+                flexShrink: 0,
+                boxShadow: bgColor === p.color ? '0 0 0 2px rgba(183, 101, 57, 0.3)' : 'none',
+              }}
+              title={p.label}
+            />
+          ))}
+          <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
+            <input
+              type="color"
+              value={bgColor}
+              onChange={e => setBgColor(e.target.value)}
+              style={{
+                width: '32px',
+                height: '32px',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                padding: 0,
+                background: 'transparent',
+              }}
+            />
+          </div>
+          <input
+            type="text"
+            value={bgColor}
+            onChange={e => { if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) setBgColor(e.target.value) }}
+            style={{ ...modalInputStyle, width: '90px', flexShrink: 0 }}
+          />
+        </div>
+      </div>
+
+      {!kioskUrl ? (
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button className="viewer-modal-btn" onClick={onClose}>{t('cancel')}</button>
+          <button className="viewer-modal-btn-primary" onClick={createKiosk} disabled={creating}>
+            {creating ? t('creating') : t('create_share')}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: '12px' }}>
+            <input type="text" value={kioskUrl} readOnly style={modalInputStyle} onClick={e => (e.target as HTMLInputElement).select()} />
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button className="viewer-modal-btn" onClick={onDone}>{t('close')}</button>
+            <button className="viewer-modal-btn-primary" onClick={copyUrl}>
+              {copied ? t('copied') : t('copy_link')}
+            </button>
+          </div>
+        </>
+      )}
+    </SelectModalOverlay>
   )
 }

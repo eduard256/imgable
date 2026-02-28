@@ -143,5 +143,11 @@
   "share_expired": "This link has expired",
   "share_not_found": "Link not found",
   "share_photos_count": "photos",
-  "selected_count": "selected"
+  "selected_count": "selected",
+  "kiosk": "Kiosk",
+  "kiosk_bg_color": "Background color",
+  "creating": "Creating...",
+  "copy_link": "Copy link",
+  "delete_selected_confirm": "Delete {n} photos?",
+  "copied": "Copied"
 }
