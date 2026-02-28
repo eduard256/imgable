@@ -37,5 +37,10 @@
   "photos_together": "Photos together",
   "select_to_merge": "Select people to merge",
   "detach": "Detach",
-  "load_more": "Load more"
+  "load_more": "Load more",
+  "no_albums": "No albums yet",
+  "create_album": "Create album",
+  "album_name": "Album name",
+  "edit": "Edit",
+  "description": "Description"
 }

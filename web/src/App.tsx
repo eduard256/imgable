@@ -3,6 +3,7 @@ import LoginPage from './pages/LoginPage'
 import GalleryPage from './pages/GalleryPage'
 import PeoplePage from './pages/PeoplePage'
 import PersonPage from './pages/PersonPage'
+import AlbumsPage, { AlbumDetailView } from './pages/AlbumsPage'
 import DesertBackground from './components/DesertBackground'
 import { getToken } from './lib/api'
 import './index.css'
@@ -13,6 +14,8 @@ type Page =
   | { view: 'people' }
   | { view: 'person'; id: string }
   | { view: 'group'; ids: string[] }
+  | { view: 'albums' }
+  | { view: 'album'; id: string }
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken())
@@ -35,6 +38,8 @@ export default function App() {
         <GalleryPage
           onOpenPeople={() => setPage({ view: 'people' })}
           onOpenPerson={(id) => setPage({ view: 'person', id })}
+          onOpenAlbums={() => setPage({ view: 'albums' })}
+          onOpenAlbum={(id) => setPage({ view: 'album', id })}
         />
 
         {page.view === 'people' && (
@@ -56,6 +61,19 @@ export default function App() {
           <PersonPage
             mode={{ type: 'group', ids: page.ids }}
             onBack={() => setPage({ view: 'people' })}
+          />
+        )}
+
+        {page.view === 'albums' && (
+          <AlbumsPage
+            onBack={() => setPage({ view: 'gallery' })}
+          />
+        )}
+
+        {page.view === 'album' && (
+          <AlbumDetailView
+            albumId={page.id}
+            onBack={() => setPage({ view: 'gallery' })}
           />
         )}
       </div>

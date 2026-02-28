@@ -38,6 +38,14 @@ interface Person {
   face_box: { x: number; y: number; w: number; h: number }
 }
 
+interface Album {
+  id: string
+  type: 'manual' | 'favorites' | 'place'
+  name: string
+  photo_count: number
+  cover?: string
+}
+
 // Format date range for display
 function formatDateRange(newest: number, oldest: number): string {
   const lang = getLang()
@@ -78,7 +86,7 @@ function distributeToColumns(photos: Photo[], colCount: number, colWidth: number
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
 
-export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void }) {
+export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
@@ -89,6 +97,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeop
   const [dateRange, setDateRange] = useState('')
   const [darkOverlay, setDarkOverlay] = useState(0)
   const [people, setPeople] = useState<Person[]>([])
+  const [albums, setAlbums] = useState<Album[]>([])
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -135,6 +144,13 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeop
       if (!res.ok) return
       const data = await res.json()
       setPeople(data.people ?? [])
+    }).catch(() => {})
+
+    // Load albums for bottom section
+    apiFetch('/api/v1/albums').then(async (res) => {
+      if (!res.ok) return
+      const data = await res.json()
+      setAlbums(data.albums ?? [])
     }).catch(() => {})
   }, [loadPhotos])
 
@@ -482,6 +498,111 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeop
                       </div>
                     )
                   })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Albums section */}
+          {albums.length > 0 && (
+            <div style={{ marginTop: '28px' }}>
+              {/* Section header: "Albums" + arrow */}
+              <div
+                className="flex items-center gap-2 cursor-pointer"
+                style={{ marginBottom: '16px' }}
+                onClick={onOpenAlbums}
+              >
+                <span
+                  style={{
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    fontSize: '17px',
+                    fontWeight: 400,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {t('albums')}
+                </span>
+                <svg
+                  width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="rgba(255,255,255,0.5)"
+                  strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </div>
+
+              {/* Horizontal scrollable grid: 2 rows */}
+              <div className="overflow-x-auto overflow-y-hidden hide-scrollbar">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateRows: 'repeat(2, 1fr)',
+                    gridAutoFlow: 'column',
+                    gridAutoColumns: 'max-content',
+                    gap: '12px',
+                    paddingBottom: '4px',
+                  }}
+                >
+                  {albums.map((album) => (
+                    <div
+                      key={album.id}
+                      className="relative overflow-hidden cursor-pointer"
+                      onClick={() => onOpenAlbum(album.id)}
+                      style={{
+                        width: '160px',
+                        height: '100px',
+                        borderRadius: '14px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                      }}
+                    >
+                      {album.cover && (
+                        <img
+                          src={album.cover}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      )}
+                      {/* Gradient overlay with name */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          padding: '20px 8px 8px',
+                          background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
+                        }}
+                      >
+                        <div style={{
+                          fontSize: '13px',
+                          color: '#fff',
+                          fontWeight: 400,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {album.name}
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'rgba(255, 255, 255, 0.55)',
+                          fontWeight: 300,
+                          marginTop: '1px',
+                        }}>
+                          {album.photo_count}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
