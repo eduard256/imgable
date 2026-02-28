@@ -142,5 +142,6 @@
   "share_protected": "Ссылка защищена паролем",
   "share_expired": "Ссылка устарела",
   "share_not_found": "Ссылка не найдена",
-  "share_photos_count": "фото"
+  "share_photos_count": "фото",
+  "selected_count": "выбрано"
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { apiFetch } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
@@ -111,6 +111,26 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerIndex, setViewerIndex] = useState(0)
   const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
+
+  // Select mode state
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [liveCount, setLiveCount] = useState(0)
+
+  // Select mode refs — kept outside React state for performance during drag/auto-scroll.
+  // Only flushed to selectedIds state via flushSelection() to trigger re-render.
+  const selectDragActive = useRef(false)
+  const selectDragPending = useRef(false)
+  const selectDragAnchorRIdx = useRef(-1)
+  const selectDragCurrentRIdx = useRef(-1)
+  const selectBaseSet = useRef<Set<string>>(new Set())
+  const selectLiveSet = useRef<Set<string>>(new Set())
+  const autoScrollRaf = useRef(0)
+  const autoScrollSpeed = useRef(0)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressTriggered = useRef(false)
+  const lastPointerPos = useRef({ x: 0, y: 0 })
+  const pointerDownPos = useRef({ x: 0, y: 0 })
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const masonryRef = useRef<HTMLDivElement>(null)
@@ -350,6 +370,343 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     }
   }
 
+  // ============================================================
+  // Select mode logic
+  // ============================================================
+
+  // Reverse-index-to-photo-id lookup for fast range computation.
+  // reversed array: rIdx 0 = oldest photo, rIdx N-1 = newest photo.
+  const rIdxToId = useMemo(() => {
+    const map = new Map<number, string>()
+    for (let i = 0; i < photos.length; i++) {
+      // reversed index = photos.length - 1 - original index
+      map.set(photos.length - 1 - i, photos[i].id)
+    }
+    return map
+  }, [photos])
+
+  // Compute the set of IDs in a chronological range between two reversed indices.
+  const computeRange = useCallback((anchorRIdx: number, currentRIdx: number): Set<string> => {
+    const lo = Math.min(anchorRIdx, currentRIdx)
+    const hi = Math.max(anchorRIdx, currentRIdx)
+    const ids = new Set<string>()
+    for (let i = lo; i <= hi; i++) {
+      const id = rIdxToId.get(i)
+      if (id) ids.add(id)
+    }
+    return ids
+  }, [rIdxToId])
+
+  // Flush live selection set into React state for re-render.
+  const flushSelection = useCallback(() => {
+    setSelectedIds(new Set(selectLiveSet.current))
+  }, [])
+
+  // Find the photo element under a screen coordinate and return its reversed index.
+  const rIdxAtPoint = useCallback((x: number, y: number): number => {
+    // Temporarily hide pointer-events on the overlay to hit-test the grid
+    const el = document.elementFromPoint(x, y) as HTMLElement | null
+    if (!el) return -1
+    const photoEl = el.closest('[data-viewer-idx]') as HTMLElement | null
+    if (!photoEl) return -1
+    return parseInt(photoEl.dataset.viewerIdx ?? '-1', 10)
+  }, [])
+
+  // Update drag range: accumulate into live set (drag only adds, never removes).
+  const updateDragRange = useCallback((currentRIdx: number) => {
+    if (currentRIdx < 0 || selectDragAnchorRIdx.current < 0) return
+    selectDragCurrentRIdx.current = currentRIdx
+    const rangeIds = computeRange(selectDragAnchorRIdx.current, currentRIdx)
+    // Add range to live set — never remove anything
+    const prevSize = selectLiveSet.current.size
+    for (const id of rangeIds) selectLiveSet.current.add(id)
+
+    // Update live counter only when count actually changed
+    if (selectLiveSet.current.size !== prevSize) {
+      setLiveCount(selectLiveSet.current.size)
+    }
+
+    // Apply CSS classes directly for instant visual feedback without re-render
+    const grid = masonryRef.current
+    if (!grid) return
+    const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
+    for (const item of items) {
+      const id = item.dataset.photoId!
+      if (selectLiveSet.current.has(id)) {
+        item.classList.add('photo-selected')
+      }
+    }
+  }, [computeRange])
+
+  // Auto-scroll loop: runs via rAF while drag is near screen edge.
+  const autoScrollLoop = useCallback(() => {
+    if (!selectDragActive.current || autoScrollSpeed.current === 0) {
+      autoScrollRaf.current = 0
+      return
+    }
+    const el = scrollRef.current
+    if (el) {
+      el.scrollTop += autoScrollSpeed.current
+      // Re-hit-test at last known pointer position after scroll
+      const rIdx = rIdxAtPoint(lastPointerPos.current.x, lastPointerPos.current.y)
+      if (rIdx >= 0) updateDragRange(rIdx)
+    }
+    autoScrollRaf.current = requestAnimationFrame(autoScrollLoop)
+  }, [rIdxAtPoint, updateDragRange])
+
+  // Start auto-scroll in a direction (negative = up, positive = down).
+  const startAutoScroll = useCallback((speed: number) => {
+    autoScrollSpeed.current = speed
+    if (!autoScrollRaf.current && speed !== 0) {
+      autoScrollRaf.current = requestAnimationFrame(autoScrollLoop)
+    }
+  }, [autoScrollLoop])
+
+  const stopAutoScroll = useCallback(() => {
+    autoScrollSpeed.current = 0
+    if (autoScrollRaf.current) {
+      cancelAnimationFrame(autoScrollRaf.current)
+      autoScrollRaf.current = 0
+    }
+  }, [])
+
+  // Compute auto-scroll speed from pointer Y position.
+  // Edge zones: top 60px and bottom 60px of the scroll container.
+  const computeAutoScrollSpeed = useCallback((clientY: number) => {
+    const el = scrollRef.current
+    if (!el) return 0
+    const rect = el.getBoundingClientRect()
+    const edgeZone = 60
+    const topDist = clientY - rect.top
+    const bottomDist = rect.bottom - clientY
+
+    if (topDist < edgeZone) {
+      // Scroll up — speed proportional to closeness to edge (negative = up)
+      const ratio = 1 - topDist / edgeZone
+      return -(6 + ratio * 42)
+    }
+    if (bottomDist < edgeZone) {
+      // Scroll down — speed proportional to closeness to edge
+      const ratio = 1 - bottomDist / edgeZone
+      return 6 + ratio * 42
+    }
+    return 0
+  }, [])
+
+  // Cancel long press timer without side effects.
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  // Enter select mode with an initial photo selected.
+  const enterSelectMode = useCallback((rIdx: number) => {
+    const id = rIdxToId.get(rIdx)
+    if (!id) return
+    setSelectMode(true)
+    const initial = new Set<string>([id])
+    selectBaseSet.current = initial
+    selectLiveSet.current = initial
+    setSelectedIds(initial)
+
+    // Apply CSS immediately
+    const grid = masonryRef.current
+    if (grid) {
+      const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
+      for (const item of items) {
+        if (item.dataset.photoId === id) {
+          item.classList.add('photo-selected')
+        }
+      }
+    }
+  }, [rIdxToId])
+
+  // Exit select mode — clear everything.
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+    selectBaseSet.current = new Set()
+    selectLiveSet.current = new Set()
+    selectDragActive.current = false
+    selectDragAnchorRIdx.current = -1
+    selectDragCurrentRIdx.current = -1
+    stopAutoScroll()
+
+    // Remove CSS classes from all items
+    const grid = masonryRef.current
+    if (grid) {
+      const items = grid.querySelectorAll('.photo-selected') as NodeListOf<HTMLElement>
+      for (const item of items) item.classList.remove('photo-selected')
+    }
+  }, [stopAutoScroll])
+
+  // Toggle single photo in select mode (tap behavior).
+  const togglePhotoSelection = useCallback((rIdx: number) => {
+    const id = rIdxToId.get(rIdx)
+    if (!id) return
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      selectBaseSet.current = next
+      selectLiveSet.current = next
+      return next
+    })
+  }, [rIdxToId])
+
+  // Pointer event handlers for the masonry grid.
+  // Unified: works for both mouse and touch via pointer events.
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // Only primary pointer (left click / first finger)
+    if (!e.isPrimary) return
+    // Ignore if pinch-zooming (multi-touch)
+    if (e.pointerType === 'touch' && e.isPrimary === false) return
+
+    lastPointerPos.current = { x: e.clientX, y: e.clientY }
+    longPressTriggered.current = false
+
+    const rIdx = rIdxAtPoint(e.clientX, e.clientY)
+
+    pointerDownPos.current = { x: e.clientX, y: e.clientY }
+
+    if (selectMode) {
+      // Already in select mode — don't start drag immediately, wait for movement.
+      // This allows single taps to toggle selection (including deselecting).
+      if (rIdx >= 0) {
+        selectDragPending.current = true
+        selectDragAnchorRIdx.current = rIdx
+        selectDragCurrentRIdx.current = rIdx
+        selectBaseSet.current = new Set(selectedIds)
+        selectLiveSet.current = new Set(selectedIds)
+      }
+    } else {
+      // Not in select mode — start long press timer
+      if (rIdx >= 0) {
+        const capturedRIdx = rIdx
+        longPressTimer.current = setTimeout(() => {
+          longPressTriggered.current = true
+          enterSelectMode(capturedRIdx)
+          // Immediately begin drag-select so continued movement selects more
+          selectDragActive.current = true
+          selectDragAnchorRIdx.current = capturedRIdx
+          selectDragCurrentRIdx.current = capturedRIdx
+          // Haptic feedback on supported devices
+          if (navigator.vibrate) navigator.vibrate(30)
+        }, 400)
+      }
+    }
+  }, [selectMode, selectedIds, rIdxAtPoint, enterSelectMode, updateDragRange])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!e.isPrimary) return
+    const dx = e.clientX - lastPointerPos.current.x
+    const dy = e.clientY - lastPointerPos.current.y
+
+    // Cancel long press if finger moved too far (> 10px)
+    if (longPressTimer.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      cancelLongPress()
+    }
+
+    lastPointerPos.current = { x: e.clientX, y: e.clientY }
+
+    // Promote pending drag to active drag once pointer moves beyond threshold (8px)
+    if (selectDragPending.current && !selectDragActive.current) {
+      const totalDx = e.clientX - pointerDownPos.current.x
+      const totalDy = e.clientY - pointerDownPos.current.y
+      if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) {
+        selectDragActive.current = true
+        selectDragPending.current = false
+        updateDragRange(selectDragAnchorRIdx.current)
+        // Capture pointer for reliable tracking
+        ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+      }
+    }
+
+    if (!selectDragActive.current) return
+
+    // Hit-test photo under pointer
+    const rIdx = rIdxAtPoint(e.clientX, e.clientY)
+    if (rIdx >= 0) updateDragRange(rIdx)
+
+    // Auto-scroll near edges
+    const speed = computeAutoScrollSpeed(e.clientY)
+    if (speed !== 0) {
+      startAutoScroll(speed)
+    } else {
+      stopAutoScroll()
+    }
+  }, [rIdxAtPoint, updateDragRange, computeAutoScrollSpeed, startAutoScroll, stopAutoScroll, cancelLongPress])
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!e.isPrimary) return
+    cancelLongPress()
+    stopAutoScroll()
+
+    const wasDragActive = selectDragActive.current
+    const wasDragPending = selectDragPending.current
+    selectDragActive.current = false
+    selectDragPending.current = false
+
+    if (wasDragActive) {
+      // End drag — commit live set to state
+      flushSelection()
+      return
+    }
+
+    // If long press was triggered, the pointerUp just ends the gesture — don't open viewer
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false
+      return
+    }
+
+    // Simple tap in select mode (pending drag that never moved) — toggle selection
+    if (selectMode && wasDragPending) {
+      const rIdx = rIdxAtPoint(e.clientX, e.clientY)
+      if (rIdx >= 0) togglePhotoSelection(rIdx)
+    }
+  }, [selectMode, rIdxAtPoint, togglePhotoSelection, flushSelection, cancelLongPress, stopAutoScroll])
+
+  const handlePointerCancel = useCallback(() => {
+    cancelLongPress()
+    stopAutoScroll()
+    selectDragPending.current = false
+    if (selectDragActive.current) {
+      selectDragActive.current = false
+      flushSelection()
+    }
+  }, [cancelLongPress, stopAutoScroll, flushSelection])
+
+  // Keep live counter in sync with selectedIds state changes (tap toggle, flush, exit).
+  useEffect(() => {
+    setLiveCount(selectedIds.size)
+  }, [selectedIds])
+
+  // Sync CSS classes when selectedIds state changes (e.g. after toggle via tap).
+  useEffect(() => {
+    const grid = masonryRef.current
+    if (!grid) return
+    const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
+    for (const item of items) {
+      const id = item.dataset.photoId!
+      if (selectedIds.has(id)) {
+        item.classList.add('photo-selected')
+      } else {
+        item.classList.remove('photo-selected')
+      }
+    }
+  }, [selectedIds])
+
+  // Cleanup auto-scroll on unmount
+  useEffect(() => {
+    return () => {
+      stopAutoScroll()
+      cancelLongPress()
+    }
+  }, [stopAutoScroll, cancelLongPress])
+
   // Build columns — reverse photos so oldest is at top, newest at bottom
   const gap = colCount >= 6 ? 2 : 3
   const containerWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
@@ -386,7 +743,12 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
             gap: `${gap}px`,
             padding: `${gap}px`,
             minHeight: '70vh',
+            ...(selectMode ? { touchAction: 'none' } : {}),
           }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
         >
           {columns.map((col, colIdx) => (
             <div
@@ -398,8 +760,15 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
                 <div
                   key={photo.id}
                   data-viewer-idx={photo._rIdx}
-                  className="relative overflow-hidden cursor-pointer"
-                  onClick={(e) => openViewer(photo._rIdx, e.currentTarget as HTMLElement)}
+                  data-photo-id={photo.id}
+                  className={`photo-grid-item relative overflow-hidden cursor-pointer${selectedIds.has(photo.id) ? ' photo-selected' : ''}`}
+                  onClick={(e) => {
+                    // In select mode, pointer handlers manage selection — block viewer open
+                    if (selectMode) { e.preventDefault(); return }
+                    // After long press triggered select mode, suppress the click
+                    if (longPressTriggered.current) { e.preventDefault(); return }
+                    openViewer(photo._rIdx, e.currentTarget as HTMLElement)
+                  }}
                   style={{
                     borderRadius: '4px',
                     aspectRatio: `${photo.w} / ${photo.h}`,
@@ -411,15 +780,19 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    className="w-full h-full object-cover transition-transform duration-200"
-                    style={{ display: 'block' }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)'
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.transform = 'scale(1)'
+                    className="w-full h-full object-cover"
+                    style={{
+                      display: 'block',
+                      transition: 'transform 0.2s ease',
+                      pointerEvents: 'none',
                     }}
                   />
+                  {/* Selection checkmark overlay */}
+                  <div className="select-check">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
                   {photo.type === 'video' && (
                     <div
                       className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-xs"
@@ -783,6 +1156,38 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           </svg>
         </button>
 
+        {/* Select mode button */}
+        <button
+          onClick={() => {
+            if (selectMode) exitSelectMode()
+            else { setSelectMode(true); selectBaseSet.current = new Set(); selectLiveSet.current = new Set() }
+          }}
+          className="rounded-full transition-all duration-200"
+          style={{
+            width: '36px',
+            height: '36px',
+            marginTop: '4px',
+            background: selectMode ? 'rgba(183, 101, 57, 0.7)' : 'rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(12px)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = selectMode ? 'rgba(183, 101, 57, 0.85)' : 'rgba(0,0,0,0.4)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = selectMode ? 'rgba(183, 101, 57, 0.7)' : 'rgba(0,0,0,0.25)'
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </button>
+
         {/* Upload button */}
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -860,6 +1265,57 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           }}
         />
       </div>
+
+      {/* Selection bottom bar */}
+      {selectMode && (
+        <div
+          className="fixed z-30 flex items-center gap-3"
+          style={{
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(44, 31, 20, 0.75)',
+            backdropFilter: 'blur(16px)',
+            borderRadius: '24px',
+            padding: '10px 20px',
+            minWidth: '180px',
+            justifyContent: 'center',
+            animation: 'selectBarSlideUp 0.25s ease-out',
+          }}
+        >
+          <span style={{
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '14px',
+            fontWeight: 400,
+            whiteSpace: 'nowrap',
+          }}>
+            {liveCount} {t('selected_count')}
+          </span>
+
+          {/* Close button */}
+          <button
+            onClick={exitSelectMode}
+            style={{
+              background: 'rgba(255, 255, 255, 0.15)',
+              border: 'none',
+              borderRadius: '50%',
+              width: '28px',
+              height: '28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              marginLeft: '4px',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Upload manager — handles drag & drop + toast progress */}
       <UploadManager ref={uploadRef} containerRef={scrollRef} />
