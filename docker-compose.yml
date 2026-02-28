@@ -1,0 +1,360 @@
+# =============================================================================
+# IMGABLE - Family Photo Gallery
+# Production Docker Compose - uses pre-built images from Docker Hub
+# Usage: cp .env.example .env && nano .env && docker compose up -d
+# =============================================================================
+
+networks:
+  internal:
+    driver: bridge
+    name: imgable-network
+
+volumes:
+  postgres_data:
+    name: imgable-postgres-data
+  redis_data:
+    name: imgable-redis-data
+  api_data:
+    name: imgable-api-data
+  ai_models:
+    name: imgable-ai-models
+
+services:
+  # ===========================================================================
+  # PostgreSQL Database
+  # Stores all metadata, albums, places, and events
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: imgable-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: imgable
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-imgable}
+      POSTGRES_DB: imgable
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imgable -d imgable"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ===========================================================================
+  # Redis
+  # Task queue (Asynq) and pub/sub for real-time events
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: imgable-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --tcp-keepalive 300
+      --timeout 0
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  # ===========================================================================
+  # Scanner Service
+  # Watches /data/uploads directory for new files and queues them for processing
+  # ===========================================================================
+  scanner:
+    image: eduard256/imgable-scanner:latest
+    container_name: imgable-scanner
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATA_DIR: /data
+      UPLOADS_DIR: /data/uploads
+      FAILED_DIR: /data/failed
+      SCAN_INTERVAL_SEC: ${SCAN_INTERVAL_SEC:-60}
+      STUCK_FILE_TIMEOUT_MIN: ${STUCK_FILE_TIMEOUT_MIN:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      API_PORT: "8001"
+    volumes:
+      - ${DATA_PATH:-/data/imgable}:/data
+    networks:
+      - internal
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ===========================================================================
+  # Processor Service
+  # Processes files from queue: creates thumbnails, extracts metadata
+  # ===========================================================================
+  processor:
+    image: eduard256/imgable-processor:latest
+    container_name: imgable-processor
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      DATA_DIR: /data
+      UPLOADS_DIR: /data/uploads
+      MEDIA_DIR: /data/media
+      FAILED_DIR: /data/failed
+      TEMP_DIR: /tmp/imgable
+      WORKERS: ${WORKERS:-4}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      MAX_MEMORY_MB: ${MAX_MEMORY_MB:-1024}
+      PREVIEW_QUALITY: ${PREVIEW_QUALITY:-85}
+      PREVIEW_SMALL_PX: ${PREVIEW_SMALL_PX:-800}
+      PREVIEW_LARGE_PX: ${PREVIEW_LARGE_PX:-2500}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      API_PORT: "8002"
+    volumes:
+      - ${DATA_PATH:-/data/imgable}:/data
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: ${MAX_MEMORY_MB:-1024}M
+
+  # ===========================================================================
+  # Places Service
+  # Assigns photos to places based on GPS coordinates, creates place albums
+  # ===========================================================================
+  places:
+    image: eduard256/imgable-places:latest
+    container_name: imgable-places
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      API_PORT: "8003"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # ===========================================================================
+  # API Server
+  # Main HTTP server: REST API + React frontend + file serving
+  # Frontend is embedded in the image, no external static files needed
+  # ===========================================================================
+  api:
+    image: eduard256/imgable-api:latest
+    container_name: imgable-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-9812}:9812"
+    environment:
+      API_PORT: "9812"
+      IMGABLE_PASSWORD: ${IMGABLE_PASSWORD:?IMGABLE_PASSWORD is required}
+      JWT_SECRET_FILE: /api_data/.jwt_secret
+      JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS:-30}
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      DATA_DIR: /data
+      MEDIA_PATH: /data/media
+      UPLOADS_PATH: /data/uploads
+      STATIC_PATH: /static
+      MIGRATIONS_PATH: /migrations
+      SCANNER_URL: http://scanner:8001
+      PROCESSOR_URL: http://processor:8002
+      PLACES_URL: http://places:8003
+      AI_URL: http://ai:8004
+      RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+    volumes:
+      - api_data:/api_data
+      - ${DATA_PATH:-/data/imgable}:/data
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9812/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ===========================================================================
+  # AI Service
+  # Face detection, object recognition, OCR for photos
+  # ===========================================================================
+  ai:
+    image: eduard256/imgable-ai:latest
+    container_name: imgable-ai
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://imgable:${POSTGRES_PASSWORD:-imgable}@postgres:5432/imgable?sslmode=disable
+      MEDIA_PATH: /media
+      MODELS_PATH: /models
+      API_PORT: "8004"
+      API_HOST: 0.0.0.0
+      AI_THREADS: ${AI_THREADS:-0}
+      AI_DELAY_MS: ${AI_DELAY_MS:-100}
+      AI_BATCH_SIZE: ${AI_BATCH_SIZE:-1}
+      AI_AUTO_START: ${AI_AUTO_START:-true}
+      AI_SCAN_INTERVAL: ${AI_SCAN_INTERVAL:-3600}
+      AI_FACES_ENABLED: ${AI_FACES_ENABLED:-true}
+      AI_FACES_MIN_CONFIDENCE: ${AI_FACES_MIN_CONFIDENCE:-0.5}
+      AI_FACES_MIN_SIZE: ${AI_FACES_MIN_SIZE:-30}
+      AI_CLUSTER_THRESHOLD: ${AI_CLUSTER_THRESHOLD:-0.6}
+      AI_CLUSTER_MIN_FACES: ${AI_CLUSTER_MIN_FACES:-3}
+      AI_TAGS_ENABLED: ${AI_TAGS_ENABLED:-true}
+      AI_TAGS_MIN_CONFIDENCE: ${AI_TAGS_MIN_CONFIDENCE:-0.15}
+      AI_OCR_ENABLED: ${AI_OCR_ENABLED:-true}
+      AI_OCR_MODE: ${AI_OCR_MODE:-auto}
+      AI_LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${DATA_PATH:-/data/imgable}/media:/media:ro
+      - ai_models:/models
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '${AI_CPU_LIMIT:-0}'
+          memory: ${AI_MEMORY_LIMIT:-2G}
+
+  # ===========================================================================
+  # SMB (Samba) File Sharing
+  # Exposes the uploads directory as a network share for easy file uploads
+  # Enable by adding "smb" to COMPOSE_PROFILES in .env
+  # Connect: \\<server-ip>\Uploads (Windows) or smb://<server-ip>/Uploads (macOS)
+  # ===========================================================================
+  smb:
+    image: dockurr/samba
+    container_name: imgable-smb
+    profiles: [smb]
+    restart: unless-stopped
+    environment:
+      NAME: "Uploads"
+      USER: imgable
+      PASS: ${IMGABLE_PASSWORD:?IMGABLE_PASSWORD is required}
+      UID: "1000"
+      GID: "1000"
+      RW: "true"
+    ports:
+      - "${SMB_PORT:-445}:445"
+    volumes:
+      - ${DATA_PATH:-/data/imgable}/uploads:/storage
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
