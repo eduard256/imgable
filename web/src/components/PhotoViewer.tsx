@@ -608,7 +608,8 @@ export default function PhotoViewer({
   useEffect(() => {
     const el = filmstripRef.current
     if (!el) return
-    const target = currentIndex * FILMSTRIP_ITEM_W - el.clientWidth / 2 + FILMSTRIP_ITEM_W / 2
+    // RTL: scrollLeft is negative, leftmost item is at 0, rightmost at -maxScroll
+    const target = -(currentIndex * FILMSTRIP_ITEM_W - el.clientWidth / 2 + FILMSTRIP_ITEM_W / 2)
     el.scrollTo({ left: target, behavior: isFastNav ? 'auto' : 'smooth' })
   }, [currentIndex, isFastNav])
 
@@ -1182,7 +1183,7 @@ export default function PhotoViewer({
         <div
           ref={filmstripRef}
           className="flex items-center h-full overflow-x-auto hide-scrollbar"
-          style={{ padding: '0 16px', gap: '4px' }}
+          style={{ padding: '0 16px', gap: '4px', direction: 'rtl' }}
         >
           {photos.map((photo, idx) => (
             <div
@@ -1197,6 +1198,7 @@ export default function PhotoViewer({
                   : '2px solid transparent',
                 opacity: idx === currentIndex ? 1 : 0.5,
                 transition: isFastNav ? 'none' : 'border-color 0.2s, opacity 0.2s',
+                direction: 'ltr',
               }}
               onClick={() => navigate(idx)}
             >
