@@ -99,7 +99,7 @@ function distributeToColumns(photos: IndexedPhoto[], colCount: number, colWidth:
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
 
-export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum, onOpenFolders, onOpenMap, onOpenAdmin }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void; onOpenFolders?: () => void; onOpenMap?: () => void; onOpenAdmin?: () => void }) {
+export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum, onOpenFolders, onOpenTrash, onOpenMap, onOpenAdmin }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void; onOpenFolders?: () => void; onOpenTrash?: () => void; onOpenMap?: () => void; onOpenAdmin?: () => void }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
@@ -922,6 +922,36 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+          </svg>
+        </button>
+
+        {/* Trash button */}
+        <button
+          onClick={() => onOpenTrash?.()}
+          className="rounded-full transition-all duration-200"
+          style={{
+            width: '36px',
+            height: '36px',
+            marginTop: '4px',
+            background: 'rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(12px)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.4)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.25)'
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
           </svg>
         </button>
 

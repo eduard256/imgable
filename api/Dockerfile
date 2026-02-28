@@ -52,6 +52,9 @@ RUN mkdir -p /data /media /uploads /static /api_data && \
 # Copy binary from builder
 COPY --from=builder /api /usr/local/bin/api
 
+# Copy database migrations
+COPY migrations/ /migrations/
+
 # Switch to non-root user
 USER imgable
 

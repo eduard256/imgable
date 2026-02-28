@@ -30,9 +30,10 @@ type Config struct {
 	RedisURL string
 
 	// Paths
-	MediaPath   string
-	UploadsPath string
-	StaticPath  string
+	MediaPath      string
+	UploadsPath    string
+	StaticPath     string
+	MigrationsPath string
 
 	// Service URLs (for proxy)
 	ScannerURL   string
@@ -71,9 +72,10 @@ func Load() (*Config, error) {
 		RedisURL: getEnvString("REDIS_URL", "redis://localhost:6379"),
 
 		// Paths
-		MediaPath:   getEnvString("MEDIA_PATH", "/data/media"),
-		UploadsPath: getEnvString("UPLOADS_PATH", "/data/uploads"),
-		StaticPath:  getEnvString("STATIC_PATH", "/static"),
+		MediaPath:      getEnvString("MEDIA_PATH", "/data/media"),
+		UploadsPath:    getEnvString("UPLOADS_PATH", "/data/uploads"),
+		StaticPath:     getEnvString("STATIC_PATH", "/static"),
+		MigrationsPath: getEnvString("MIGRATIONS_PATH", "/migrations"),
 
 		// Service URLs
 		ScannerURL:   getEnvString("SCANNER_URL", "http://localhost:8001"),

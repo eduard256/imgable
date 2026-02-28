@@ -152,5 +152,15 @@
   "copied": "Copied",
   "folders": "Folders",
   "folder_empty": "Folder is empty",
-  "items_count": "{n} items"
+  "items_count": "{n} items",
+  "trash": "Trash",
+  "trash_info": "Items in trash are permanently deleted after 30 days",
+  "trash_empty": "Trash is empty",
+  "empty_trash": "Empty trash",
+  "empty_trash_confirm": "Permanently delete all items from trash? This cannot be undone.",
+  "restore": "Restore",
+  "delete_forever": "Delete forever",
+  "delete_forever_confirm": "Permanently delete {n} items? This cannot be undone.",
+  "moved_to_trash": "Moved to trash",
+  "undo": "Undo"
 }
