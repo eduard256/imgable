@@ -9,7 +9,7 @@
 // Parallel uploads (max 3) via XMLHttpRequest for progress.
 // ============================================================
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { getToken } from '../lib/api'
 import { t } from '../lib/i18n'
 
@@ -82,9 +82,15 @@ async function traverseEntry(entry: FileSystemEntry, files: File[]): Promise<voi
   }
 }
 
+// ---- Public handle ----
+
+export interface UploadManagerHandle {
+  addFiles: (files: File[]) => void
+}
+
 // ---- Component ----
 
-export default function UploadManager({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+const UploadManager = forwardRef<UploadManagerHandle, { containerRef: React.RefObject<HTMLDivElement | null> }>(function UploadManager({ containerRef }, ref) {
   const [items, setItems] = useState<UploadItem[]>([])
   const [expanded, setExpanded] = useState(false)
 
@@ -214,6 +220,11 @@ export default function UploadManager({ containerRef }: { containerRef: React.Re
     },
     [processQueue],
   )
+
+  // Expose addFiles to parent via ref
+  useImperativeHandle(ref, () => ({
+    addFiles: (files: File[]) => processFiles(files),
+  }), [processFiles])
 
   // Set up drag & drop on the container
   useEffect(() => {
@@ -532,7 +543,9 @@ export default function UploadManager({ containerRef }: { containerRef: React.Re
       </button>
     </div>
   )
-}
+})
+
+export default UploadManager
 
 // Small action button for the expanded panel
 function MiniButton({ label, onClick }: { label: string; onClick: () => void }) {

@@ -3,6 +3,7 @@ import { apiFetch } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
 import UploadManager from '../components/UploadManager'
+import type { UploadManagerHandle } from '../components/UploadManager'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -106,6 +107,8 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const loadingRef = useRef(false)
   const initialScrollDone = useRef(false)
   const pinchStartDistance = useRef(0)
+  const uploadRef = useRef<UploadManagerHandle>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const colCount = SCALE_PRESETS[scaleIndex]
 
@@ -727,10 +730,57 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
         </button>
+
+        {/* Upload button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-full transition-all duration-200"
+          style={{
+            width: '36px',
+            height: '36px',
+            marginTop: '4px',
+            background: 'rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(12px)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.4)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.25)'
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </button>
+
+        {/* Hidden file input for upload button */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const files = e.target.files
+            if (files && files.length > 0) {
+              uploadRef.current?.addFiles(Array.from(files))
+              e.target.value = ''
+            }
+          }}
+        />
       </div>
 
       {/* Upload manager — handles drag & drop + toast progress */}
-      <UploadManager containerRef={scrollRef} />
+      <UploadManager ref={uploadRef} containerRef={scrollRef} />
     </div>
   )
 }
