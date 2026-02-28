@@ -175,3 +175,98 @@ html {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+/* ============================================================
+   Map markers and shimmer animation
+   ============================================================ */
+
+@keyframes mapShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Single photo marker — green border circle */
+.map-marker-single {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #6B8E5A;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s ease;
+}
+
+.map-marker-single:hover {
+  transform: scale(1.15);
+  z-index: 10 !important;
+}
+
+.map-marker-single img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Cluster marker — warm brown border */
+.map-marker-cluster {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #8B6F5A;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s ease;
+}
+
+.map-marker-cluster:hover {
+  transform: scale(1.1);
+  z-index: 10 !important;
+}
+
+.map-marker-cluster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Cluster count badge */
+.map-marker-count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: #8B6F5A;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  font-family: var(--font-sans);
+}
+
+/* Override MapLibre navigation control styling to match theme */
+.maplibregl-ctrl-group {
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  border: none !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  width: 36px !important;
+  height: 36px !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+}

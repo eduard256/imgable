@@ -42,5 +42,8 @@
   "create_album": "Create album",
   "album_name": "Album name",
   "edit": "Edit",
-  "description": "Description"
+  "description": "Description",
+  "photos_on_map": "photos on map",
+  "photos_in_area": "photos in this area",
+  "no_geo_photos": "No photos with location"
 }

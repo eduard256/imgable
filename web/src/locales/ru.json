@@ -42,5 +42,8 @@
   "create_album": "Создать альбом",
   "album_name": "Название альбома",
   "edit": "Редактировать",
-  "description": "Описание"
+  "description": "Описание",
+  "photos_on_map": "фото на карте",
+  "photos_in_area": "фото в этой области",
+  "no_geo_photos": "Нет фото с геоданными"
 }

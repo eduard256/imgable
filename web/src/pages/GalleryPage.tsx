@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
+import MapPreview from '../components/MapPreview'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -86,7 +87,7 @@ function distributeToColumns(photos: Photo[], colCount: number, colWidth: number
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
 
-export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void }) {
+export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, onOpenAlbum, onOpenMap }: { onOpenPeople: () => void; onOpenPerson: (id: string) => void; onOpenAlbums: () => void; onOpenAlbum: (id: string) => void; onOpenMap?: () => void }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(true)
@@ -100,6 +101,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const [albums, setAlbums] = useState<Album[]>([])
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const masonryRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
   const initialScrollDone = useRef(false)
   const pinchStartDistance = useRef(0)
@@ -162,11 +164,12 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       if (!el) return
 
       // Target: 70% gallery visible + 30% bottom section peeking
-      // Bottom section is 100vh. Boundary is at scrollHeight - 100vh.
-      // We want boundary at 70% of viewport: S + 0.7 * clientHeight = scrollHeight - clientHeight
-      // So S = scrollHeight - 1.7 * clientHeight
+      // Boundary = bottom edge of masonry grid (measured via ref)
+      // We want that boundary at 70% of viewport height
+      // So scrollTop = masonryHeight - 0.7 * clientHeight
       const scrollToBoundary = () => {
-        const target = el.scrollHeight - 1.7 * el.clientHeight
+        const masonryHeight = masonryRef.current?.offsetHeight ?? el.scrollHeight
+        const target = masonryHeight - 0.7 * el.clientHeight
         el.scrollTop = Math.max(target, 0)
       }
 
@@ -213,8 +216,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     }
 
     // Dark overlay based on scroll distance from the 70/30 boundary
-    // Boundary position: scrollHeight - 1.7 * clientHeight
-    const boundaryScrollTop = el.scrollHeight - 1.7 * el.clientHeight
+    // Boundary = masonry bottom edge, shown at 70% of viewport
+    const masonryHeight = masonryRef.current?.offsetHeight ?? el.scrollHeight
+    const boundaryScrollTop = masonryHeight - 0.7 * el.clientHeight
     const distanceFromBoundary = boundaryScrollTop - el.scrollTop
     const progress = Math.min(Math.max(distanceFromBoundary, 0) / 1000, 1)
     setDarkOverlay(progress)
@@ -322,6 +326,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       >
         {/* Masonry grid */}
         <div
+          ref={masonryRef}
           className="flex w-full items-end"
           style={{
             gap: `${gap}px`,
@@ -607,6 +612,36 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
               </div>
             </div>
           )}
+
+          {/* Map section */}
+          <div style={{ marginTop: '28px' }}>
+            {/* Section header: "Map" + arrow */}
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              style={{ marginBottom: '16px' }}
+              onClick={onOpenMap}
+            >
+              <span
+                style={{
+                  color: '#3D2B1F',
+                  fontSize: '17px',
+                  fontWeight: 500,
+                  letterSpacing: '0.5px',
+                }}
+              >
+                {t('map')}
+              </span>
+              <svg
+                width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="#5C4033"
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+
+            <MapPreview />
+          </div>
         </div>
       </div>
 
