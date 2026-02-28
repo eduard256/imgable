@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiFetch } from '../lib/api'
 import { t } from '../lib/i18n'
+import PhotoViewer from '../components/PhotoViewer'
+import type { ViewerPhoto } from '../components/PhotoViewer'
 
 // ============================================================
 // Albums Page — User albums + place albums grid
@@ -297,6 +299,9 @@ export function AlbumDetailView({ albumId, onBack }: { albumId: string; onBack: 
   const [photos, setPhotos] = useState<Photo[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [editModal, setEditModal] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState(0)
+  const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
 
   const cursorRef = useRef<string | null>(null)
   const loadingRef = useRef(false)
@@ -429,7 +434,7 @@ export function AlbumDetailView({ albumId, onBack }: { albumId: string; onBack: 
               padding: '3px',
             }}
           >
-            {photos.map((photo) => (
+            {photos.map((photo, idx) => (
               <div
                 key={photo.id}
                 className="relative overflow-hidden cursor-pointer"
@@ -437,6 +442,11 @@ export function AlbumDetailView({ albumId, onBack }: { albumId: string; onBack: 
                   aspectRatio: '1',
                   backgroundColor: 'rgba(255, 255, 255, 0.04)',
                   borderRadius: '4px',
+                }}
+                onClick={(e) => {
+                  setViewerRect(e.currentTarget.getBoundingClientRect())
+                  setViewerIndex(idx)
+                  setViewerOpen(true)
                 }}
               >
                 <img
@@ -464,6 +474,21 @@ export function AlbumDetailView({ albumId, onBack }: { albumId: string; onBack: 
           </div>
         )}
       </div>
+
+      {/* Photo viewer */}
+      {viewerOpen && (
+        <PhotoViewer
+          photos={photos as ViewerPhoto[]}
+          startIndex={viewerIndex}
+          syncScroll={false}
+          albumId={albumId}
+          onClose={(_idx, vp) => {
+            setPhotos(vp as Photo[])
+            setViewerOpen(false)
+          }}
+          thumbnailRect={viewerRect}
+        />
+      )}
 
       {/* Edit album modal */}
       {editModal && album && (

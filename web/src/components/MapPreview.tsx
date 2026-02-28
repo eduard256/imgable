@@ -15,6 +15,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { t } from '../lib/i18n'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import PhotoViewer from './PhotoViewer'
+import type { ViewerPhoto } from './PhotoViewer'
 
 // MapLibre types — imported dynamically but typed here for refs
 import type { Map as MaplibreMap, Marker, NavigationControl as NavControl } from 'maplibre-gl'
@@ -426,14 +428,18 @@ function ClusterGalleryOverlay({
   onClose: () => void
   onLoadMore: () => void
 }) {
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState(0)
+  const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !viewerOpen) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, viewerOpen])
 
   return (
     <div
@@ -503,7 +509,7 @@ function ClusterGalleryOverlay({
             gap: '3px',
           }}
         >
-          {data.photos.map((photo) => (
+          {data.photos.map((photo, idx) => (
             <div
               key={photo.id}
               className="relative overflow-hidden cursor-pointer"
@@ -511,6 +517,11 @@ function ClusterGalleryOverlay({
                 aspectRatio: '1',
                 borderRadius: '4px',
                 backgroundColor: 'rgba(255, 255, 255, 0.04)',
+              }}
+              onClick={(e) => {
+                setViewerRect(e.currentTarget.getBoundingClientRect())
+                setViewerIndex(idx)
+                setViewerOpen(true)
               }}
             >
               <img
@@ -572,6 +583,17 @@ function ClusterGalleryOverlay({
           </div>
         )}
       </div>
+
+      {/* Photo viewer */}
+      {viewerOpen && (
+        <PhotoViewer
+          photos={data.photos as ViewerPhoto[]}
+          startIndex={viewerIndex}
+          syncScroll={false}
+          onClose={() => setViewerOpen(false)}
+          thumbnailRect={viewerRect}
+        />
+      )}
     </div>
   )
 }

@@ -4,6 +4,8 @@ import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
 import UploadManager from '../components/UploadManager'
 import type { UploadManagerHandle } from '../components/UploadManager'
+import PhotoViewer from '../components/PhotoViewer'
+import type { ViewerPhoto } from '../components/PhotoViewer'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -68,9 +70,14 @@ function formatDateRange(newest: number, oldest: number): string {
   return `${fmtFull.format(oDate)} — ${fmtFull.format(nDate)}`
 }
 
+// Photo with tracked reversed-array index for viewer mapping
+interface IndexedPhoto extends Photo {
+  _rIdx: number
+}
+
 // Distribute photos into columns using shortest-column algorithm
-function distributeToColumns(photos: Photo[], colCount: number, colWidth: number): Photo[][] {
-  const columns: Photo[][] = Array.from({ length: colCount }, () => [])
+function distributeToColumns(photos: IndexedPhoto[], colCount: number, colWidth: number): IndexedPhoto[][] {
+  const columns: IndexedPhoto[][] = Array.from({ length: colCount }, () => [])
   const heights: number[] = new Array(colCount).fill(0)
 
   for (const photo of photos) {
@@ -101,6 +108,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const [darkOverlay, setDarkOverlay] = useState(0)
   const [people, setPeople] = useState<Person[]>([])
   const [albums, setAlbums] = useState<Album[]>([])
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState(0)
+  const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const masonryRef = useRef<HTMLDivElement>(null)
@@ -300,12 +310,48 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     }
   }
 
+  // Open photo viewer — map from reversed display index to original photos array index
+  function openViewer(reversedIdx: number, element: HTMLElement) {
+    // reversed array: index 0 = oldest (photos[photos.length-1]), last = newest (photos[0])
+    // original photos array: index 0 = newest, last = oldest
+    const originalIdx = photos.length - 1 - reversedIdx
+    const rect = element.getBoundingClientRect()
+    setViewerRect(rect)
+    setViewerIndex(originalIdx)
+    setViewerOpen(true)
+  }
+
+  function handleViewerClose(currentIndex: number, viewerPhotos: ViewerPhoto[]) {
+    // Update photos array from viewer (may have been modified by favorite/delete)
+    setPhotos(viewerPhotos as Photo[])
+    setViewerOpen(false)
+
+    // Scroll to the photo in the grid (best effort)
+    // currentIndex is in the original (newest-first) array
+    // In reversed display, it maps to: reversedIdx = photos.length - 1 - currentIndex
+    const reversedIdx = viewerPhotos.length - 1 - currentIndex
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (!el) return
+      const photoEl = el.querySelector(`[data-viewer-idx="${reversedIdx}"]`) as HTMLElement | null
+      if (photoEl) {
+        photoEl.scrollIntoView({ block: 'center', behavior: 'auto' })
+      }
+    })
+  }
+
+  function handleViewerLoadMore() {
+    if (hasMore && !loadingRef.current && cursor) {
+      loadPhotos(cursor)
+    }
+  }
+
   // Build columns — reverse photos so oldest is at top, newest at bottom
   const gap = colCount >= 6 ? 2 : 3
   const containerWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
   const colWidth = (containerWidth - gap * (colCount + 1)) / colCount
 
-  const reversed = [...photos].reverse()
+  const reversed: IndexedPhoto[] = [...photos].reverse().map((p, i) => ({ ...p, _rIdx: i }))
   const columns = distributeToColumns(reversed, colCount, colWidth)
 
   return (
@@ -347,7 +393,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
               {col.map((photo) => (
                 <div
                   key={photo.id}
+                  data-viewer-idx={photo._rIdx}
                   className="relative overflow-hidden cursor-pointer"
+                  onClick={(e) => openViewer(photo._rIdx, e.currentTarget as HTMLElement)}
                   style={{
                     borderRadius: '4px',
                     aspectRatio: `${photo.w} / ${photo.h}`,
@@ -781,6 +829,19 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
       {/* Upload manager — handles drag & drop + toast progress */}
       <UploadManager ref={uploadRef} containerRef={scrollRef} />
+
+      {/* Photo viewer — fullscreen viewer overlay */}
+      {viewerOpen && (
+        <PhotoViewer
+          photos={photos as ViewerPhoto[]}
+          startIndex={viewerIndex}
+          syncScroll={true}
+          onClose={handleViewerClose}
+          onLoadMore={handleViewerLoadMore}
+          onPhotosChanged={(vp) => setPhotos(vp as Photo[])}
+          thumbnailRect={viewerRect}
+        />
+      )}
     </div>
   )
 }

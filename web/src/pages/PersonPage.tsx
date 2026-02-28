@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { t } from '../lib/i18n'
+import PhotoViewer from '../components/PhotoViewer'
+import type { ViewerPhoto } from '../components/PhotoViewer'
 
 // ============================================================
 // Person Detail Page — photos of a specific person
@@ -71,6 +73,11 @@ export default function PersonPage({ mode, onBack }: {
 
   // Group mode info
   const [groupNames, setGroupNames] = useState('')
+
+  // Viewer
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState(0)
+  const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
 
   const cursorRef = useRef<string | null>(null)
   const loadingRef = useRef(false)
@@ -401,7 +408,7 @@ export default function PersonPage({ mode, onBack }: {
               padding: '3px',
             }}
           >
-            {photos.map((photo) => (
+            {photos.map((photo, idx) => (
               <div
                 key={photo.id}
                 className="relative overflow-hidden cursor-pointer"
@@ -409,6 +416,11 @@ export default function PersonPage({ mode, onBack }: {
                   aspectRatio: '1',
                   backgroundColor: 'rgba(255, 255, 255, 0.04)',
                   borderRadius: '4px',
+                }}
+                onClick={(e) => {
+                  setViewerRect(e.currentTarget.getBoundingClientRect())
+                  setViewerIndex(idx)
+                  setViewerOpen(true)
                 }}
               >
                 <img
@@ -443,6 +455,20 @@ export default function PersonPage({ mode, onBack }: {
           </div>
         )}
       </div>
+
+      {/* Photo viewer */}
+      {viewerOpen && (
+        <PhotoViewer
+          photos={photos as ViewerPhoto[]}
+          startIndex={viewerIndex}
+          syncScroll={false}
+          onClose={(_idx, vp) => {
+            setPhotos(vp as Photo[])
+            setViewerOpen(false)
+          }}
+          thumbnailRect={viewerRect}
+        />
+      )}
 
       {/* === Modals === */}
 

@@ -278,3 +278,109 @@ html {
 @keyframes uploadSpin {
   to { transform: rotate(360deg); }
 }
+
+/* ============================================================
+   PhotoViewer — fullscreen photo/video viewer
+   ============================================================ */
+
+/* Toolbar button — glass pill */
+.viewer-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.viewer-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.viewer-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(0.95);
+}
+
+/* Navigation arrows (PC) */
+.viewer-nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 15;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  opacity: 0;
+}
+
+.viewer-nav-arrow:hover {
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 1;
+}
+
+/* Show arrows when hovering the content area */
+.fixed:hover .viewer-nav-arrow {
+  opacity: 0.6;
+}
+
+/* Modal buttons */
+.viewer-modal-btn {
+  padding: 8px 20px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  fontSize: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.viewer-modal-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.viewer-modal-btn-primary {
+  padding: 8px 20px;
+  border-radius: 10px;
+  background: rgba(207, 86, 54, 0.7);
+  border: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.viewer-modal-btn-primary:hover {
+  background: rgba(207, 86, 54, 0.85);
+}
+
+.viewer-modal-btn-primary:disabled {
+  background: rgba(207, 86, 54, 0.3);
+  color: rgba(255, 255, 255, 0.4);
+  cursor: default;
+}
+
+/* Viewer media — prevent drag ghost */
+.viewer-media {
+  user-select: none;
+  -webkit-user-drag: none;
+}
