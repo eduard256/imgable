@@ -39,11 +39,14 @@ RUN go mod download
 # Copy source code
 COPY api/ .
 
+# Version is passed as build argument (defaults to "dev")
+ARG VERSION=dev
+
 # Build the binary with optimizations
 # CGO_ENABLED=0 for static binary
-# -ldflags="-s -w" strips debug info for smaller binary
+# -ldflags="-s -w" strips debug info, -X sets version at compile time
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION}" \
     -o /api \
     ./cmd/main.go
 

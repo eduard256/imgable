@@ -21,6 +21,7 @@ type Dependencies struct {
 	Storage   *storage.Storage
 	JWTAuth   *auth.JWTAuth
 	RateLimit *auth.RateLimiter
+	Version   string
 }
 
 // NewRouter creates and configures the HTTP router with all routes.
@@ -34,7 +35,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	r.Use(CORS)
 
 	// Health check (no auth required)
-	r.Get("/health", handlers.Health(deps.Storage))
+	r.Get("/health", handlers.Health(deps.Storage, deps.Version))
 
 	// Create handlers
 	authHandler := handlers.NewAuthHandler(deps.Config, deps.JWTAuth, deps.RateLimit, deps.Logger)

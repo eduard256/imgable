@@ -11,16 +11,18 @@ import (
 // HealthResponse represents health check response.
 type HealthResponse struct {
 	Status   string `json:"status"`
+	Version  string `json:"version"`
 	Database string `json:"database"`
 	Redis    string `json:"redis"`
 }
 
 // Health returns a health check handler.
-// It checks database and Redis connectivity.
-func Health(store *storage.Storage) http.HandlerFunc {
+// It checks database and Redis connectivity and reports the current version.
+func Health(store *storage.Storage, version string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := HealthResponse{
 			Status:   "ok",
+			Version:  version,
 			Database: "ok",
 			Redis:    "ok",
 		}

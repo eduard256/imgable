@@ -19,6 +19,9 @@ import (
 	"github.com/imgable/api/internal/storage"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
 	// Initialize logger
 	logger := initLogger()
@@ -71,6 +74,7 @@ func main() {
 		Storage:   store,
 		JWTAuth:   jwtAuth,
 		RateLimit: rateLimit,
+		Version:   version,
 	}
 	router := server.NewRouter(deps)
 
