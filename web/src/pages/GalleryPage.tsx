@@ -302,12 +302,12 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
   return (
     <div className="fixed inset-0">
-      {/* Dark terracotta overlay — fades in as user scrolls up */}
+      {/* Dark overlay — fades in as user scrolls up into older photos */}
       <div
         className="fixed inset-0 pointer-events-none z-0"
         style={{
-          background: '#1A0F0A',
-          opacity: darkOverlay * 0.92,
+          background: '#2C1F14',
+          opacity: darkOverlay * 0.85,
         }}
       />
 
@@ -384,7 +384,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           style={{
             minHeight: '100vh',
             scrollSnapAlign: 'start',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            borderTop: '1px solid rgba(61, 43, 31, 0.1)',
             padding: '24px 16px',
           }}
         >
@@ -399,9 +399,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
               >
                 <span
                   style={{
-                    color: 'rgba(255, 255, 255, 0.85)',
+                    color: '#3D2B1F',
                     fontSize: '17px',
-                    fontWeight: 400,
+                    fontWeight: 500,
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -409,7 +409,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
                 </span>
                 <svg
                   width="16" height="16" viewBox="0 0 24 24"
-                  fill="none" stroke="rgba(255,255,255,0.5)"
+                  fill="none" stroke="#5C4033"
                   strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
                 >
                   <polyline points="9 18 15 12 9 6" />
@@ -514,9 +514,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
               >
                 <span
                   style={{
-                    color: 'rgba(255, 255, 255, 0.85)',
+                    color: '#3D2B1F',
                     fontSize: '17px',
-                    fontWeight: 400,
+                    fontWeight: 500,
                     letterSpacing: '0.5px',
                   }}
                 >
@@ -524,7 +524,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
                 </span>
                 <svg
                   width="16" height="16" viewBox="0 0 24 24"
-                  fill="none" stroke="rgba(255,255,255,0.5)"
+                  fill="none" stroke="#5C4033"
                   strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
                 >
                   <polyline points="9 18 15 12 9 6" />
@@ -617,11 +617,11 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           style={{
             top: '12px',
             left: '16px',
-            color: 'rgba(255, 255, 255, 0.7)',
+            color: '#3D2B1F',
             fontSize: '13px',
-            fontWeight: 300,
+            fontWeight: 400,
             letterSpacing: '0.5px',
-            background: 'rgba(0, 0, 0, 0.25)',
+            background: 'rgba(255, 255, 255, 0.45)',
             backdropFilter: 'blur(12px)',
             padding: '6px 14px',
             borderRadius: '20px',

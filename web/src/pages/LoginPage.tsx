@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { login, setToken, savePassword } from '../lib/api'
 import { t } from '../lib/i18n'
-import DesertBackground from '../components/DesertBackground'
 
 // ============================================================
 // Login Page — "Terracotta Desert"
@@ -140,9 +139,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       className="fixed inset-0 flex items-center justify-center overflow-hidden select-none"
       onClick={() => inputRef.current?.focus()}
     >
-      <DesertBackground />
-
-      {/* Password input area */}
+      {/* Password input area — background is rendered by App.tsx */}
       <div
         className="relative z-10 flex flex-col items-center gap-8"
         style={{
