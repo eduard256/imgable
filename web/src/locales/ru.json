@@ -137,5 +137,10 @@
   "admin_retry": "Повторить",
   "admin_stage": "Этап",
   "admin_attempts": "Попыток",
-  "admin_uptime": "Работает"
+  "admin_uptime": "Работает",
+  "share_enter_password": "Введите пароль",
+  "share_protected": "Ссылка защищена паролем",
+  "share_expired": "Ссылка устарела",
+  "share_not_found": "Ссылка не найдена",
+  "share_photos_count": "фото"
 }

@@ -5,6 +5,8 @@ import PeoplePage from './pages/PeoplePage'
 import PersonPage from './pages/PersonPage'
 import AlbumsPage, { AlbumDetailView } from './pages/AlbumsPage'
 import AdminPage from './pages/AdminPage'
+import SharePage from './pages/SharePage'
+import KioskPage from './pages/KioskPage'
 import DesertBackground from './components/DesertBackground'
 import type { BgTheme } from './components/DesertBackground'
 import { getToken } from './lib/api'
@@ -19,10 +21,17 @@ type Page =
   | { view: 'albums' }
   | { view: 'album'; id: string }
   | { view: 'admin' }
+  | { view: 'share'; code: string }
+  | { view: 'kiosk'; code: string }
 
 // Check initial page from URL path
 function getInitialPage(): Page {
-  if (window.location.pathname === '/admin') return { view: 'admin' }
+  const path = window.location.pathname
+  const kioskMatch = path.match(/^\/k\/(.+)/)
+  if (kioskMatch) return { view: 'kiosk', code: kioskMatch[1] }
+  const shareMatch = path.match(/^\/s\/(.+)/)
+  if (shareMatch) return { view: 'share', code: shareMatch[1] }
+  if (path === '/admin') return { view: 'admin' }
   return { view: 'gallery' }
 }
 
@@ -92,6 +101,23 @@ export default function App() {
 
   function navigateFromAdmin() {
     setPage({ view: 'gallery' })
+  }
+
+  // Kiosk mode — full-screen effect display, no auth, no background
+  if (page.view === 'kiosk') {
+    return <KioskPage code={page.code} />
+  }
+
+  // Public share page — rendered without auth, completely independent
+  if (page.view === 'share') {
+    return (
+      <div className="fixed inset-0 overflow-hidden">
+        <DesertBackground theme="terracotta" />
+        <div className="relative z-10 h-full">
+          <SharePage code={page.code} />
+        </div>
+      </div>
+    )
   }
 
   return (
