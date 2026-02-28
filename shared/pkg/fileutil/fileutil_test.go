@@ -64,6 +64,56 @@ func TestGetFileType(t *testing.T) {
 	}
 }
 
+func TestIsIgnoredFile(t *testing.T) {
+	tests := []struct {
+		filename string
+		expected bool
+	}{
+		// macOS junk
+		{".DS_Store", true},
+		{"._photo.jpg", true},
+		{"._video.mp4", true},
+		{".Localized", true},
+
+		// Windows junk
+		{"Thumbs.db", true},
+		{"thumbs.db", true},
+		{"desktop.ini", true},
+		{"Desktop.ini", true},
+		{"ehthumbs.db", true},
+		{"ehthumbs_vista.db", true},
+
+		// Linux junk
+		{".directory", true},
+
+		// Temp and partial files
+		{"photo.tmp", true},
+		{"video.part", true},
+		{"file.crdownload", true},
+		{"file.download", true},
+
+		// Editor swap/backup files
+		{"~photo.jpg", true},
+		{"photo.jpg~", true},
+
+		// Normal files should NOT be ignored
+		{"photo.jpg", false},
+		{"video.mp4", false},
+		{"document.pdf", false},
+		{"my_file.png", false},
+		{"/uploads/subfolder/image.heic", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			result := IsIgnoredFile(tt.filename)
+			if result != tt.expected {
+				t.Errorf("IsIgnoredFile(%q) = %v, want %v", tt.filename, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsSupportedFile(t *testing.T) {
 	tests := []struct {
 		filename string
@@ -73,6 +123,11 @@ func TestIsSupportedFile(t *testing.T) {
 		{"video.mp4", true},
 		{"document.pdf", false},
 		{"file.txt", false},
+
+		// OS junk with media extensions should be rejected
+		{"._photo.jpg", false},
+		{"._video.mp4", false},
+		{"~backup.png", false},
 	}
 
 	for _, tt := range tests {

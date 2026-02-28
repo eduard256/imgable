@@ -384,3 +384,37 @@ services:
           cpus: '${AI_CPU_LIMIT:-0}'
           # Memory limit
           memory: ${AI_MEMORY_LIMIT:-2G}
+
+  # ===========================================================================
+  # SMB (Samba) File Sharing
+  # Exposes the uploads directory as a network share for easy file uploads
+  # Enable by adding "smb" to COMPOSE_PROFILES in .env
+  # Connect: \\<server-ip>\Uploads (Windows) or smb://<server-ip>/Uploads (macOS)
+  # ===========================================================================
+  smb:
+    image: dockurr/samba
+    container_name: imgable-smb
+    profiles: [smb]
+    restart: unless-stopped
+    environment:
+      NAME: "Uploads"
+      USER: imgable
+      PASS: ${IMGABLE_PASSWORD:?IMGABLE_PASSWORD is required}
+      UID: "1000"
+      GID: "1000"
+      RW: "true"
+    ports:
+      - "${SMB_PORT:-445}:445"
+    volumes:
+      - ${DATA_PATH:-/data/imgable}/uploads:/storage
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M

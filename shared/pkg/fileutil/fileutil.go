@@ -69,8 +69,54 @@ func GetFileType(filename string) FileType {
 	return FileTypeUnknown
 }
 
-// IsSupportedFile checks if a file has a supported extension.
+// OS-generated junk filenames that should always be ignored (case-insensitive).
+var ignoredNames = map[string]bool{
+	".ds_store":        true, // macOS directory metadata
+	".thumbs.db":       true, // Windows thumbnail cache (dot-prefixed variant)
+	"thumbs.db":        true, // Windows thumbnail cache
+	"desktop.ini":      true, // Windows folder settings
+	"ehthumbs.db":      true, // Windows Media Center thumbnails
+	"ehthumbs_vista.db": true, // Windows Vista Media Center thumbnails
+	".directory":       true, // KDE directory metadata
+	".localized":       true, // macOS localization file
+}
+
+// IsIgnoredFile checks if a file is OS-generated junk that should be skipped.
+// Catches macOS resource forks (._*), hidden dot-files, Windows/Linux metadata,
+// temp files, and partial downloads.
+func IsIgnoredFile(filename string) bool {
+	base := filepath.Base(filename)
+	lower := strings.ToLower(base)
+
+	// Known junk filenames
+	if ignoredNames[lower] {
+		return true
+	}
+
+	// macOS resource forks: ._filename.ext
+	if strings.HasPrefix(base, "._") {
+		return true
+	}
+
+	// Temp and partial download files
+	if strings.HasSuffix(lower, ".tmp") || strings.HasSuffix(lower, ".part") ||
+		strings.HasSuffix(lower, ".crdownload") || strings.HasSuffix(lower, ".download") {
+		return true
+	}
+
+	// Editor swap/backup files: ~file, file~
+	if strings.HasPrefix(base, "~") || strings.HasSuffix(base, "~") {
+		return true
+	}
+
+	return false
+}
+
+// IsSupportedFile checks if a file has a supported extension and is not OS junk.
 func IsSupportedFile(filename string) bool {
+	if IsIgnoredFile(filename) {
+		return false
+	}
 	return GetFileType(filename) != FileTypeUnknown
 }
 
