@@ -355,11 +355,11 @@ export default function PhotoViewer({
           break
         case 'ArrowLeft':
           e.preventDefault()
-          navigate(currentIndexRef.current - 1)
+          navigate(currentIndexRef.current + 1)
           break
         case 'ArrowRight':
           e.preventDefault()
-          navigate(currentIndexRef.current + 1)
+          navigate(currentIndexRef.current - 1)
           break
         case 'f':
           toggleFavorite()
