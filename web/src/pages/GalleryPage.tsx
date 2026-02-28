@@ -119,10 +119,11 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
   // Select mode refs — kept outside React state for performance during drag/auto-scroll.
   // Only flushed to selectedIds state via flushSelection() to trigger re-render.
+  // Anchor/current stored as photo IDs (stable across array changes), not indices.
   const selectDragActive = useRef(false)
   const selectDragPending = useRef(false)
-  const selectDragAnchorRIdx = useRef(-1)
-  const selectDragCurrentRIdx = useRef(-1)
+  const selectDragAnchorId = useRef<string | null>(null)
+  const selectDragCurrentId = useRef<string | null>(null)
   const selectBaseSet = useRef<Set<string>>(new Set())
   const selectLiveSet = useRef<Set<string>>(new Set())
   const autoScrollRaf = useRef(0)
@@ -374,49 +375,47 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   // Select mode logic
   // ============================================================
 
-  // Reverse-index-to-photo-id lookup for fast range computation.
-  // reversed array: rIdx 0 = oldest photo, rIdx N-1 = newest photo.
-  const rIdxToId = useMemo(() => {
-    const map = new Map<number, string>()
-    for (let i = 0; i < photos.length; i++) {
-      // reversed index = photos.length - 1 - original index
-      map.set(photos.length - 1 - i, photos[i].id)
-    }
+  // Photo ID to original-array index lookup (refreshed on every render).
+  // photos array: index 0 = newest, index N-1 = oldest.
+  const idToOrigIdx = useMemo(() => {
+    const map = new Map<string, number>()
+    for (let i = 0; i < photos.length; i++) map.set(photos[i].id, i)
     return map
   }, [photos])
 
-  // Compute the set of IDs in a chronological range between two reversed indices.
-  const computeRange = useCallback((anchorRIdx: number, currentRIdx: number): Set<string> => {
-    const lo = Math.min(anchorRIdx, currentRIdx)
-    const hi = Math.max(anchorRIdx, currentRIdx)
+  // Compute the set of IDs in a chronological range between two photo IDs.
+  // Uses original array indices (0=newest, N-1=oldest), stable across array growth
+  // because new older photos are appended at the end.
+  const computeRangeByIds = useCallback((anchorId: string, currentId: string): Set<string> => {
+    const a = idToOrigIdx.get(anchorId)
+    const b = idToOrigIdx.get(currentId)
+    if (a === undefined || b === undefined) return new Set()
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
     const ids = new Set<string>()
-    for (let i = lo; i <= hi; i++) {
-      const id = rIdxToId.get(i)
-      if (id) ids.add(id)
-    }
+    for (let i = lo; i <= hi; i++) ids.add(photos[i].id)
     return ids
-  }, [rIdxToId])
+  }, [idToOrigIdx, photos])
 
   // Flush live selection set into React state for re-render.
   const flushSelection = useCallback(() => {
     setSelectedIds(new Set(selectLiveSet.current))
   }, [])
 
-  // Find the photo element under a screen coordinate and return its reversed index.
-  const rIdxAtPoint = useCallback((x: number, y: number): number => {
-    // Temporarily hide pointer-events on the overlay to hit-test the grid
+  // Find the photo ID under a screen coordinate via DOM hit-test.
+  const photoIdAtPoint = useCallback((x: number, y: number): string | null => {
     const el = document.elementFromPoint(x, y) as HTMLElement | null
-    if (!el) return -1
-    const photoEl = el.closest('[data-viewer-idx]') as HTMLElement | null
-    if (!photoEl) return -1
-    return parseInt(photoEl.dataset.viewerIdx ?? '-1', 10)
+    if (!el) return null
+    const photoEl = el.closest('[data-photo-id]') as HTMLElement | null
+    if (!photoEl) return null
+    return photoEl.dataset.photoId ?? null
   }, [])
 
   // Update drag range: accumulate into live set (drag only adds, never removes).
-  const updateDragRange = useCallback((currentRIdx: number) => {
-    if (currentRIdx < 0 || selectDragAnchorRIdx.current < 0) return
-    selectDragCurrentRIdx.current = currentRIdx
-    const rangeIds = computeRange(selectDragAnchorRIdx.current, currentRIdx)
+  const updateDragRange = useCallback((currentId: string) => {
+    if (!selectDragAnchorId.current) return
+    selectDragCurrentId.current = currentId
+    const rangeIds = computeRangeByIds(selectDragAnchorId.current, currentId)
     // Add range to live set — never remove anything
     const prevSize = selectLiveSet.current.size
     for (const id of rangeIds) selectLiveSet.current.add(id)
@@ -436,7 +435,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
         item.classList.add('photo-selected')
       }
     }
-  }, [computeRange])
+  }, [computeRangeByIds])
 
   // Auto-scroll loop: runs via rAF while drag is near screen edge.
   const autoScrollLoop = useCallback(() => {
@@ -448,11 +447,11 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     if (el) {
       el.scrollTop += autoScrollSpeed.current
       // Re-hit-test at last known pointer position after scroll
-      const rIdx = rIdxAtPoint(lastPointerPos.current.x, lastPointerPos.current.y)
-      if (rIdx >= 0) updateDragRange(rIdx)
+      const id = photoIdAtPoint(lastPointerPos.current.x, lastPointerPos.current.y)
+      if (id) updateDragRange(id)
     }
     autoScrollRaf.current = requestAnimationFrame(autoScrollLoop)
-  }, [rIdxAtPoint, updateDragRange])
+  }, [photoIdAtPoint, updateDragRange])
 
   // Start auto-scroll in a direction (negative = up, positive = down).
   const startAutoScroll = useCallback((speed: number) => {
@@ -502,11 +501,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   }, [])
 
   // Enter select mode with an initial photo selected.
-  const enterSelectMode = useCallback((rIdx: number) => {
-    const id = rIdxToId.get(rIdx)
-    if (!id) return
+  const enterSelectMode = useCallback((photoId: string) => {
     setSelectMode(true)
-    const initial = new Set<string>([id])
+    const initial = new Set<string>([photoId])
     selectBaseSet.current = initial
     selectLiveSet.current = initial
     setSelectedIds(initial)
@@ -514,14 +511,10 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     // Apply CSS immediately
     const grid = masonryRef.current
     if (grid) {
-      const items = grid.querySelectorAll('[data-photo-id]') as NodeListOf<HTMLElement>
-      for (const item of items) {
-        if (item.dataset.photoId === id) {
-          item.classList.add('photo-selected')
-        }
-      }
+      const el = grid.querySelector(`[data-photo-id="${photoId}"]`) as HTMLElement | null
+      if (el) el.classList.add('photo-selected')
     }
-  }, [rIdxToId])
+  }, [])
 
   // Exit select mode — clear everything.
   const exitSelectMode = useCallback(() => {
@@ -530,8 +523,8 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     selectBaseSet.current = new Set()
     selectLiveSet.current = new Set()
     selectDragActive.current = false
-    selectDragAnchorRIdx.current = -1
-    selectDragCurrentRIdx.current = -1
+    selectDragAnchorId.current = null
+    selectDragCurrentId.current = null
     stopAutoScroll()
 
     // Remove CSS classes from all items
@@ -543,18 +536,16 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   }, [stopAutoScroll])
 
   // Toggle single photo in select mode (tap behavior).
-  const togglePhotoSelection = useCallback((rIdx: number) => {
-    const id = rIdxToId.get(rIdx)
-    if (!id) return
+  const togglePhotoSelection = useCallback((photoId: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(photoId)) next.delete(photoId)
+      else next.add(photoId)
       selectBaseSet.current = next
       selectLiveSet.current = next
       return next
     })
-  }, [rIdxToId])
+  }, [])
 
   // Pointer event handlers for the masonry grid.
   // Unified: works for both mouse and touch via pointer events.
@@ -567,38 +558,37 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
     lastPointerPos.current = { x: e.clientX, y: e.clientY }
     longPressTriggered.current = false
-
-    const rIdx = rIdxAtPoint(e.clientX, e.clientY)
-
     pointerDownPos.current = { x: e.clientX, y: e.clientY }
+
+    const id = photoIdAtPoint(e.clientX, e.clientY)
 
     if (selectMode) {
       // Already in select mode — don't start drag immediately, wait for movement.
       // This allows single taps to toggle selection (including deselecting).
-      if (rIdx >= 0) {
+      if (id) {
         selectDragPending.current = true
-        selectDragAnchorRIdx.current = rIdx
-        selectDragCurrentRIdx.current = rIdx
+        selectDragAnchorId.current = id
+        selectDragCurrentId.current = id
         selectBaseSet.current = new Set(selectedIds)
         selectLiveSet.current = new Set(selectedIds)
       }
     } else {
       // Not in select mode — start long press timer
-      if (rIdx >= 0) {
-        const capturedRIdx = rIdx
+      if (id) {
+        const capturedId = id
         longPressTimer.current = setTimeout(() => {
           longPressTriggered.current = true
-          enterSelectMode(capturedRIdx)
+          enterSelectMode(capturedId)
           // Immediately begin drag-select so continued movement selects more
           selectDragActive.current = true
-          selectDragAnchorRIdx.current = capturedRIdx
-          selectDragCurrentRIdx.current = capturedRIdx
+          selectDragAnchorId.current = capturedId
+          selectDragCurrentId.current = capturedId
           // Haptic feedback on supported devices
           if (navigator.vibrate) navigator.vibrate(30)
         }, 400)
       }
     }
-  }, [selectMode, selectedIds, rIdxAtPoint, enterSelectMode, updateDragRange])
+  }, [selectMode, selectedIds, photoIdAtPoint, enterSelectMode])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return
@@ -619,7 +609,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) {
         selectDragActive.current = true
         selectDragPending.current = false
-        updateDragRange(selectDragAnchorRIdx.current)
+        if (selectDragAnchorId.current) updateDragRange(selectDragAnchorId.current)
         // Capture pointer for reliable tracking
         ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
       }
@@ -628,8 +618,8 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     if (!selectDragActive.current) return
 
     // Hit-test photo under pointer
-    const rIdx = rIdxAtPoint(e.clientX, e.clientY)
-    if (rIdx >= 0) updateDragRange(rIdx)
+    const id = photoIdAtPoint(e.clientX, e.clientY)
+    if (id) updateDragRange(id)
 
     // Auto-scroll near edges
     const speed = computeAutoScrollSpeed(e.clientY)
@@ -638,7 +628,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     } else {
       stopAutoScroll()
     }
-  }, [rIdxAtPoint, updateDragRange, computeAutoScrollSpeed, startAutoScroll, stopAutoScroll, cancelLongPress])
+  }, [photoIdAtPoint, updateDragRange, computeAutoScrollSpeed, startAutoScroll, stopAutoScroll, cancelLongPress])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return
@@ -664,10 +654,10 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
     // Simple tap in select mode (pending drag that never moved) — toggle selection
     if (selectMode && wasDragPending) {
-      const rIdx = rIdxAtPoint(e.clientX, e.clientY)
-      if (rIdx >= 0) togglePhotoSelection(rIdx)
+      const id = photoIdAtPoint(e.clientX, e.clientY)
+      if (id) togglePhotoSelection(id)
     }
-  }, [selectMode, rIdxAtPoint, togglePhotoSelection, flushSelection, cancelLongPress, stopAutoScroll])
+  }, [selectMode, photoIdAtPoint, togglePhotoSelection, flushSelection, cancelLongPress, stopAutoScroll])
 
   const handlePointerCancel = useCallback(() => {
     cancelLongPress()
