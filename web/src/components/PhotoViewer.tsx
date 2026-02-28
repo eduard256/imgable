@@ -212,15 +212,29 @@ export default function PhotoViewer({
   useEffect(() => { photosRef.current = photos }, [photos])
   useEffect(() => { currentIndexRef.current = currentIndex }, [currentIndex])
 
-  // Sync photos from parent
+  // Sync photos from parent — only when length changes (new photos loaded)
+  // Skip if the change came from inside the viewer (mutation flag)
+  const mutatedInsideRef = useRef(false)
+  const prevLengthRef = useRef(initialPhotos.length)
   useEffect(() => {
-    setPhotos(initialPhotos)
-  }, [initialPhotos])
+    if (initialPhotos.length !== prevLengthRef.current) {
+      prevLengthRef.current = initialPhotos.length
+      if (!mutatedInsideRef.current) {
+        setPhotos(initialPhotos)
+      }
+      mutatedInsideRef.current = false
+    }
+  }, [initialPhotos.length])
 
-  // Notify parent of photo changes
-  useEffect(() => {
-    onPhotosChanged?.(photos)
-  }, [photos, onPhotosChanged])
+  // Internal setter that marks mutations as coming from inside
+  const setPhotosInternal = useCallback((updater: ViewerPhoto[] | ((prev: ViewerPhoto[]) => ViewerPhoto[])) => {
+    mutatedInsideRef.current = true
+    setPhotos(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      onPhotosChanged?.(next)
+      return next
+    })
+  }, [onPhotosChanged])
 
   // Responsive listener
   useEffect(() => {
@@ -508,7 +522,7 @@ export default function PhotoViewer({
       } else {
         await apiFetch(`/api/v1/photos/${currentPhoto.id}/favorite`, { method: 'POST' })
       }
-      setPhotos(prev => prev.map((p, i) =>
+      setPhotosInternal(prev => prev.map((p, i) =>
         i === currentIndexRef.current ? { ...p, is_favorite: !p.is_favorite } : p
       ))
     } catch { /* ignore */ }
@@ -534,12 +548,12 @@ export default function PhotoViewer({
         onClose(0, newPhotos)
         return
       }
-      setPhotos(newPhotos)
+      setPhotosInternal(newPhotos)
       if (currentIndex >= newPhotos.length) {
         setCurrentIndex(newPhotos.length - 1)
       }
     } catch { /* ignore */ }
-  }, [currentPhoto, photos, currentIndex, onClose])
+  }, [currentPhoto, photos, currentIndex, onClose, setPhotosInternal])
 
   const handleRemoveFromAlbum = useCallback(async () => {
     if (!currentPhoto || !albumId || !confirm(t('remove_from_album_confirm'))) return
@@ -550,12 +564,12 @@ export default function PhotoViewer({
         onClose(0, newPhotos)
         return
       }
-      setPhotos(newPhotos)
+      setPhotosInternal(newPhotos)
       if (currentIndex >= newPhotos.length) {
         setCurrentIndex(newPhotos.length - 1)
       }
     } catch { /* ignore */ }
-  }, [currentPhoto, albumId, photos, currentIndex, onClose])
+  }, [currentPhoto, albumId, photos, currentIndex, onClose, setPhotosInternal])
 
   const handleAddToAlbum = useCallback(async (targetAlbumId: string) => {
     if (!currentPhoto) return

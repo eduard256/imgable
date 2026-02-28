@@ -234,8 +234,8 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
     const masonryHeight = masonryRef.current?.offsetHeight ?? el.scrollHeight
     const boundaryScrollTop = masonryHeight - 0.7 * el.clientHeight
     const distanceFromBoundary = boundaryScrollTop - el.scrollTop
-    const progress = Math.min(Math.max(distanceFromBoundary, 0) / 1000, 1)
-    setDarkOverlay(progress)
+    const progress = Math.round(Math.min(Math.max(distanceFromBoundary, 0) / 1000, 1) * 100) / 100
+    setDarkOverlay(prev => prev === progress ? prev : progress)
 
     updateDateRange()
   }, [hasMore, cursor, loadPhotos])
@@ -339,6 +339,10 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
       }
     })
   }
+
+  const handlePhotosChanged = useCallback((vp: ViewerPhoto[]) => {
+    setPhotos(vp as Photo[])
+  }, [])
 
   function handleViewerLoadMore() {
     if (hasMore && !loadingRef.current && cursor) {
@@ -838,7 +842,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           syncScroll={true}
           onClose={handleViewerClose}
           onLoadMore={handleViewerLoadMore}
-          onPhotosChanged={(vp) => setPhotos(vp as Photo[])}
+          onPhotosChanged={handlePhotosChanged}
           thumbnailRect={viewerRect}
         />
       )}
