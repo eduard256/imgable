@@ -6,9 +6,9 @@ import { t } from '../lib/i18n'
 // People Page — Grid of detected faces, groups section below
 //
 // Square avatar cards in responsive grid.
-// Tap person → PersonPage.
+// Tap person -> PersonPage.
 // Groups section ("Together") below individuals.
-// Infinite scroll for both sections.
+// Manual "Load more" buttons for both sections.
 // ============================================================
 
 interface Person {
@@ -40,16 +40,14 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
   const [groupsTotal, setGroupsTotal] = useState(0)
   const [peopleHasMore, setPeopleHasMore] = useState(false)
   const [groupsHasMore, setGroupsHasMore] = useState(false)
+  const [loadingPeople, setLoadingPeople] = useState(false)
+  const [loadingGroups, setLoadingGroups] = useState(false)
 
   const peopleOffsetRef = useRef(0)
   const groupsOffsetRef = useRef(0)
-  const loadingPeopleRef = useRef(false)
-  const loadingGroupsRef = useRef(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   const loadPeople = useCallback(async (offset: number) => {
-    if (loadingPeopleRef.current) return
-    loadingPeopleRef.current = true
+    setLoadingPeople(true)
     try {
       const res = await apiFetch(`/api/v1/people?limit=${PAGE_LIMIT}&offset=${offset}`)
       if (!res.ok) return
@@ -59,13 +57,12 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
       setPeopleHasMore(data.has_more)
       peopleOffsetRef.current = offset + data.people.length
     } finally {
-      loadingPeopleRef.current = false
+      setLoadingPeople(false)
     }
   }, [])
 
   const loadGroups = useCallback(async (offset: number) => {
-    if (loadingGroupsRef.current) return
-    loadingGroupsRef.current = true
+    setLoadingGroups(true)
     try {
       const res = await apiFetch(`/api/v1/people/groups?limit=${PAGE_LIMIT}&offset=${offset}`)
       if (!res.ok) return
@@ -75,7 +72,7 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
       setGroupsHasMore(data.has_more)
       groupsOffsetRef.current = offset + data.groups.length
     } finally {
-      loadingGroupsRef.current = false
+      setLoadingGroups(false)
     }
   }, [])
 
@@ -84,21 +81,6 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
     loadPeople(0)
     loadGroups(0)
   }, [loadPeople, loadGroups])
-
-  // Infinite scroll
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 800
-    if (nearBottom) {
-      if (peopleHasMore && !loadingPeopleRef.current) {
-        loadPeople(peopleOffsetRef.current)
-      }
-      if (groupsHasMore && !loadingGroupsRef.current) {
-        loadGroups(groupsOffsetRef.current)
-      }
-    }
-  }, [peopleHasMore, groupsHasMore, loadPeople, loadGroups])
 
   return (
     <div className="fixed inset-0 z-30" style={{ background: 'rgba(10, 7, 5, 0.97)' }}>
@@ -146,13 +128,11 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
 
       {/* Scrollable content */}
       <div
-        ref={scrollRef}
         className="overflow-y-auto"
         style={{ height: 'calc(100% - 65px)' }}
-        onScroll={handleScroll}
       >
         {/* People grid */}
-        {people.length === 0 ? (
+        {people.length === 0 && !loadingPeople ? (
           <div style={{
             padding: '60px 20px',
             textAlign: 'center',
@@ -162,22 +142,34 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
             {t('no_people')}
           </div>
         ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-              gap: '12px',
-              padding: '16px',
-            }}
-          >
-            {people.map((person) => (
-              <PersonCard
-                key={person.id}
-                person={person}
-                onClick={() => onOpenPerson(person.id)}
-              />
-            ))}
-          </div>
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                gap: '12px',
+                padding: '16px',
+              }}
+            >
+              {people.map((person) => (
+                <PersonCard
+                  key={person.id}
+                  person={person}
+                  onClick={() => onOpenPerson(person.id)}
+                />
+              ))}
+            </div>
+
+            {/* Load more people */}
+            {peopleHasMore && (
+              <div style={{ padding: '0 16px 16px', textAlign: 'center' }}>
+                <LoadMoreButton
+                  loading={loadingPeople}
+                  onClick={() => loadPeople(peopleOffsetRef.current)}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Groups section */}
@@ -214,7 +206,7 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
                 gap: '12px',
-                padding: '8px 16px 24px',
+                padding: '8px 16px 16px',
               }}
             >
               {groups.map((group, idx) => (
@@ -225,6 +217,16 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
                 />
               ))}
             </div>
+
+            {/* Load more groups */}
+            {groupsHasMore && (
+              <div style={{ padding: '0 16px 24px', textAlign: 'center' }}>
+                <LoadMoreButton
+                  loading={loadingGroups}
+                  onClick={() => loadGroups(groupsOffsetRef.current)}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -232,10 +234,35 @@ export default function PeoplePage({ onBack, onOpenPerson, onOpenGroup }: {
   )
 }
 
+// "Load more" button
+function LoadMoreButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      style={{
+        padding: '10px 28px',
+        borderRadius: '12px',
+        background: 'rgba(255, 255, 255, 0.06)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        color: loading ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.6)',
+        fontSize: '13px',
+        fontWeight: 300,
+        cursor: loading ? 'default' : 'pointer',
+        fontFamily: 'var(--font-sans)',
+        letterSpacing: '0.3px',
+        transition: 'all 0.15s',
+      }}
+    >
+      {loading ? t('loading') : t('load_more')}
+    </button>
+  )
+}
+
 // Individual person card — square avatar + optional name
 function PersonCard({ person, onClick }: { person: Person; onClick: () => void }) {
   const box = person.face_box
-  const scale = 1 / Math.max(box.w, box.h) * 0.75
+  const scale = 1
 
   return (
     <div

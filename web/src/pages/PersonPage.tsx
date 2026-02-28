@@ -165,7 +165,7 @@ export default function PersonPage({ mode, onBack }: {
 
   // Face crop for header avatar
   const avatarScale = person?.face_box
-    ? 1 / Math.max(person.face_box.w, person.face_box.h) * 0.75
+    ? 1
     : 1
   const avatarObjPos = person?.face_box
     ? `${(person.face_box.x + person.face_box.w / 2) * 100}% ${(person.face_box.y + person.face_box.h / 2) * 100}%`
@@ -567,7 +567,7 @@ export default function PersonPage({ mode, onBack }: {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '12px' }}>
             {faces.map((face) => {
               const fBox = face.preview_box
-              const fScale = 1 / Math.max(fBox.w, fBox.h) * 0.75
+              const fScale = 1
               return (
                 <div key={face.id} className="flex flex-col items-center gap-2">
                   <div className="relative overflow-hidden" style={{

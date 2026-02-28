@@ -415,7 +415,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeop
                   {people.map((person) => {
                     // Zoom into face region using object-position + scale
                     const box = person.face_box
-                    const scale = 1 / Math.max(box.w, box.h) * 0.75
+                    const scale = 1
 
                     return (
                       <div
@@ -450,26 +450,35 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson }: { onOpenPeop
                               transform: `scale(${scale})`,
                             }}
                           />
+                          {/* Name overlay on photo — only if manually set */}
+                          {person.name_source === 'manual' && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                bottom: '0',
+                                left: '0',
+                                right: '0',
+                                padding: '16px 6px 6px',
+                                background: 'linear-gradient(transparent, rgba(0,0,0,0.55))',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: '18px',
+                                  color: '#fff',
+                                  fontWeight: 400,
+                                  display: 'block',
+                                  textAlign: 'center',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {person.name}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        {/* Name — only if manually set */}
-                        {person.name_source === 'manual' && (
-                          <span
-                            style={{
-                              marginTop: '6px',
-                              fontSize: '11px',
-                              color: 'rgba(255, 255, 255, 0.6)',
-                              fontWeight: 300,
-                              textAlign: 'center',
-                              lineHeight: '1.2',
-                              maxWidth: '100px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {person.name}
-                          </span>
-                        )}
                       </div>
                     )
                   })}
