@@ -45,5 +45,18 @@
   "description": "Описание",
   "photos_on_map": "фото на карте",
   "photos_in_area": "фото в этой области",
-  "no_geo_photos": "Нет фото с геоданными"
+  "no_geo_photos": "Нет фото с геоданными",
+  "uploading_files": "Загружается",
+  "upload_done": "Загружено",
+  "upload_error": "Ошибка",
+  "upload_cancelled": "Отменено",
+  "files_short": "файл.",
+  "of": "из",
+  "done": "готово",
+  "cancel_all": "Отменить все",
+  "clear": "Очистить",
+  "waiting": "Ожидание",
+  "network_error": "Ошибка сети",
+  "file_too_large": "Слишком большой",
+  "unsupported_type": "Не поддерживается"
 }

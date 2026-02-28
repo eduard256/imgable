@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
+import UploadManager from '../components/UploadManager'
 
 // ============================================================
 // Gallery Page — Pinterest-style masonry, reverse chronological
@@ -727,6 +728,9 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
           </svg>
         </button>
       </div>
+
+      {/* Upload manager — handles drag & drop + toast progress */}
+      <UploadManager containerRef={scrollRef} />
     </div>
   )
 }

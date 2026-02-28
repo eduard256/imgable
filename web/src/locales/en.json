@@ -45,5 +45,18 @@
   "description": "Description",
   "photos_on_map": "photos on map",
   "photos_in_area": "photos in this area",
-  "no_geo_photos": "No photos with location"
+  "no_geo_photos": "No photos with location",
+  "uploading_files": "Uploading",
+  "upload_done": "Done",
+  "upload_error": "Error",
+  "upload_cancelled": "Cancelled",
+  "files_short": "files",
+  "of": "of",
+  "done": "done",
+  "cancel_all": "Cancel all",
+  "clear": "Clear",
+  "waiting": "Waiting",
+  "network_error": "Network error",
+  "file_too_large": "Too large",
+  "unsupported_type": "Unsupported"
 }
