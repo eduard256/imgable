@@ -197,6 +197,7 @@ func main() {
 
 	// Create API server
 	apiServer := api.New(api.Config{
+		Host:          cfg.APIHost,
 		Port:          cfg.APIPort,
 		Inspector:     inspector,
 		FailedHandler: failedHandler,

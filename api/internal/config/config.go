@@ -14,6 +14,7 @@ import (
 // Config holds all configuration for the API server.
 type Config struct {
 	// Server
+	Host            string
 	Port            int
 	ShutdownTimeout time.Duration
 
@@ -57,6 +58,7 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		// Server defaults
+		Host:            getEnvString("API_HOST", ""),
 		Port:            getEnvInt("API_PORT", 9812),
 		ShutdownTimeout: time.Duration(getEnvInt("SHUTDOWN_TIMEOUT_SEC", 30)) * time.Second,
 

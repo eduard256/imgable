@@ -21,6 +21,7 @@ type Config struct {
 	IntervalMinutes int
 
 	// API server
+	APIHost string
 	APIPort string
 
 	// Logging
@@ -45,6 +46,7 @@ func Load() *Config {
 		IntervalMinutes: 5, // Hardcoded: every 5 minutes
 
 		// API
+		APIHost: getEnv("API_HOST", ""),
 		APIPort: getEnv("API_PORT", "8003"),
 
 		// Logging

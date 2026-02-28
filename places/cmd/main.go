@@ -49,7 +49,7 @@ func main() {
 	w := worker.NewWorker(db, nominatimClient, cfg.RadiusDegrees, log)
 
 	// Create API server
-	apiServer := api.NewServer(w, cfg.APIPort, log)
+	apiServer := api.NewServer(w, cfg.APIHost, cfg.APIPort, log)
 
 	// Start API server
 	go func() {

@@ -32,6 +32,7 @@ type Server struct {
 
 // Config holds API server configuration.
 type Config struct {
+	Host          string
 	Port          string
 	Inspector     *queue.Inspector
 	FailedHandler *failed.Handler
@@ -56,7 +57,7 @@ func New(cfg Config) *Server {
 	s.setupRoutes()
 
 	s.server = &http.Server{
-		Addr:         ":" + cfg.Port,
+		Addr:         cfg.Host + ":" + cfg.Port,
 		Handler:      s.router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,

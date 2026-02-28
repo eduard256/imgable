@@ -73,6 +73,7 @@ func main() {
 
 	// Create API server
 	apiServer := api.New(api.Config{
+		Host:     cfg.APIHost,
 		Port:     cfg.APIPort,
 		Watcher:  w,
 		Producer: producer,

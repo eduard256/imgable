@@ -27,6 +27,7 @@ type Config struct {
 	StuckFileTimeout time.Duration
 
 	// API server configuration
+	APIHost string
 	APIPort string
 
 	// External services
@@ -45,6 +46,7 @@ func Load() *Config {
 		FailedDir:        getEnv("FAILED_DIR", "/data/failed"),
 		ScanInterval:     getDurationEnv("SCAN_INTERVAL_SEC", 60) * time.Second,
 		StuckFileTimeout: getDurationEnv("STUCK_FILE_TIMEOUT_MIN", 5) * time.Minute,
+		APIHost:          getEnv("API_HOST", ""),
 		APIPort:          getEnv("API_PORT", "8001"),
 		AIServiceURL:     getEnv("AI_SERVICE_URL", "http://ai:8004"),
 		LogLevel:         getEnv("LOG_LEVEL", "info"),

@@ -38,6 +38,7 @@ type Config struct {
 	PreviewLargePx int
 
 	// API server
+	APIHost string
 	APIPort string
 
 	// Logging
@@ -74,6 +75,7 @@ func Load() *Config {
 		PreviewLargePx: getIntEnv("PREVIEW_LARGE_PX", 2500),
 
 		// API
+		APIHost: getEnv("API_HOST", ""),
 		APIPort: getEnv("API_PORT", "8002"),
 
 		// Logging

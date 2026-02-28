@@ -20,15 +20,17 @@ type Server struct {
 	server *http.Server
 	worker *worker.Worker
 	logger *logger.Logger
+	host   string
 	port   string
 }
 
 // NewServer creates a new API server.
-func NewServer(w *worker.Worker, port string, log *logger.Logger) *Server {
+func NewServer(w *worker.Worker, host, port string, log *logger.Logger) *Server {
 	s := &Server{
 		router: chi.NewRouter(),
 		worker: w,
 		logger: log.WithField("component", "api"),
+		host:   host,
 		port:   port,
 	}
 
@@ -54,7 +56,7 @@ func (s *Server) setupRoutes() {
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	s.server = &http.Server{
-		Addr:    ":" + s.port,
+		Addr:    s.host + ":" + s.port,
 		Handler: s.router,
 	}
 

@@ -23,7 +23,7 @@ type Server struct {
 func New(cfg *config.Config, handler http.Handler, logger *slog.Logger) *Server {
 	return &Server{
 		httpServer: &http.Server{
-			Addr:         fmt.Sprintf(":%d", cfg.Port),
+			Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 			Handler:      handler,
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 60 * time.Second, // Longer for file uploads
