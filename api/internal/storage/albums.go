@@ -263,7 +263,7 @@ func (s *Storage) GetAlbumPhotos(ctx context.Context, albumID string, limit int,
 		SELECT p.id, p.type, p.blurhash, p.small_width, p.small_height, p.taken_at, p.is_favorite, p.duration_sec
 		FROM photos p
 		JOIN album_photos ap ON ap.photo_id = p.id
-		WHERE ap.album_id = $1 AND p.status = 'ready'%s
+		WHERE ap.album_id = $1 AND p.status = 'ready' AND p.deleted_at IS NULL%s
 		ORDER BY COALESCE(ap.sort_order, 0), p.taken_at DESC NULLS LAST, p.id DESC
 		LIMIT $%d
 	`, cursorCond, argNum)

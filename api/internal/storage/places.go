@@ -123,7 +123,7 @@ func (s *Storage) GetPlacePhotos(ctx context.Context, placeID string, limit int,
 	query := fmt.Sprintf(`
 		SELECT id, type, blurhash, small_width, small_height, taken_at, is_favorite, duration_sec
 		FROM photos
-		WHERE place_id = $1 AND status = 'ready'%s
+		WHERE place_id = $1 AND status = 'ready' AND deleted_at IS NULL%s
 		ORDER BY taken_at DESC NULLS LAST, id DESC
 		LIMIT $%d
 	`, cursorCond, argNum)

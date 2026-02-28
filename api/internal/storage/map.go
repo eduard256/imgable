@@ -107,6 +107,7 @@ func (s *Storage) queryMapClusters(ctx context.Context, bounds MapBounds, gridSi
 			WHERE gps_lat IS NOT NULL
 				AND gps_lon IS NOT NULL
 				AND status = 'ready'
+				AND deleted_at IS NULL
 				AND gps_lat BETWEEN $1 AND $2
 				AND gps_lon BETWEEN $3 AND $4
 		),
@@ -206,6 +207,7 @@ func (s *Storage) GetMapBounds(ctx context.Context) (*MapBounds, int, error) {
 		WHERE gps_lat IS NOT NULL
 			AND gps_lon IS NOT NULL
 			AND status = 'ready'
+			AND deleted_at IS NULL
 	`
 
 	var minLat, maxLat, minLon, maxLon sql.NullFloat64

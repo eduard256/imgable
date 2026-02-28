@@ -59,6 +59,7 @@ type PhotoListItem struct {
 	TakenAt    *time.Time `json:"taken_at,omitempty"`
 	IsFavorite bool       `json:"is_favorite"`
 	Duration   *int       `json:"duration,omitempty"` // Only for videos
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"` // Only in trash mode
 }
 
 // PhotoGroup represents a month group with photo count.
@@ -86,6 +87,7 @@ type PhotoListParams struct {
 	Bounds     *GeoBounds // Geographic filter for map view
 	FolderPath      string // Filter by original_path prefix (folder and all subfolders)
 	FolderRecursive bool   // If true, include subfolders; if false, only direct photos in FolderPath
+	Trash      bool   // If true, show only soft-deleted photos (sorted by deleted_at DESC)
 }
 
 // GeoBounds represents geographic boundaries for filtering photos.
@@ -115,7 +117,7 @@ func (s *Storage) GetPhotoGroups(ctx context.Context, photoType string) ([]Photo
 			COALESCE(TO_CHAR(taken_at, 'YYYY-MM'), 'unknown') as month_key,
 			COUNT(*) as count
 		FROM photos
-		WHERE status = 'ready'%s
+		WHERE status = 'ready' AND deleted_at IS NULL%s
 		GROUP BY month_key
 		ORDER BY month_key DESC
 	`, typeFilter)
@@ -160,9 +162,21 @@ func (s *Storage) GetPhotoGroups(ctx context.Context, photoType string) ([]Photo
 
 // ListPhotos returns a paginated list of photos.
 // Uses cursor-based pagination for stable results.
+// When params.Trash is true, returns only soft-deleted photos sorted by deleted_at DESC.
 func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]PhotoListItem, *PhotoCursor, error) {
+	// Limit
+	limit := params.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+
+	// Trash mode: simplified query with deleted_at sorting
+	if params.Trash {
+		return s.listTrashPhotos(ctx, params.Cursor, limit)
+	}
+
 	// Build query dynamically
-	conditions := []string{"status = 'ready'"}
+	conditions := []string{"status = 'ready'", "deleted_at IS NULL"}
 	args := []interface{}{}
 	argNum := 1
 
@@ -268,12 +282,6 @@ func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]Pho
 		}
 	}
 
-	// Limit
-	limit := params.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-
 	query := fmt.Sprintf(`
 		SELECT id, type, blurhash, small_width, small_height, taken_at, is_favorite, duration_sec
 		FROM photos
@@ -335,6 +343,97 @@ func (s *Storage) ListPhotos(ctx context.Context, params PhotoListParams) ([]Pho
 	return photos, nextCursor, nil
 }
 
+// listTrashPhotos returns soft-deleted photos sorted by deleted_at DESC.
+// Uses cursor-based pagination with deleted_at as the sort key.
+func (s *Storage) listTrashPhotos(ctx context.Context, cursor *PhotoCursor, limit int) ([]PhotoListItem, *PhotoCursor, error) {
+	conditions := []string{"status = 'ready'", "deleted_at IS NOT NULL"}
+	args := []interface{}{}
+	argNum := 1
+
+	// Cursor pagination by deleted_at DESC
+	if cursor != nil {
+		if cursor.TakenAt != nil {
+			// TakenAt field is reused to carry deleted_at value in trash mode
+			conditions = append(conditions, fmt.Sprintf("(deleted_at < $%d OR (deleted_at = $%d AND id < $%d))", argNum, argNum, argNum+1))
+			args = append(args, *cursor.TakenAt, cursor.ID)
+			argNum += 2
+		} else {
+			conditions = append(conditions, fmt.Sprintf("id < $%d", argNum))
+			args = append(args, cursor.ID)
+			argNum++
+		}
+	}
+
+	whereClause := "WHERE " + conditions[0]
+	for _, cond := range conditions[1:] {
+		whereClause += " AND " + cond
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, type, blurhash, small_width, small_height, taken_at, is_favorite, duration_sec, deleted_at
+		FROM photos
+		%s
+		ORDER BY deleted_at DESC, id DESC
+		LIMIT $%d
+	`, whereClause, argNum)
+	args = append(args, limit+1)
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query trash photos: %w", err)
+	}
+	defer rows.Close()
+
+	var photos []PhotoListItem
+	for rows.Next() {
+		var p PhotoListItem
+		var smallWidth, smallHeight sql.NullInt32
+		var takenAt, deletedAt sql.NullTime
+		var blurhash sql.NullString
+		var duration sql.NullInt32
+
+		if err := rows.Scan(&p.ID, &p.Type, &blurhash, &smallWidth, &smallHeight, &takenAt, &p.IsFavorite, &duration, &deletedAt); err != nil {
+			return nil, nil, fmt.Errorf("scan trash photo: %w", err)
+		}
+
+		if blurhash.Valid {
+			p.Blurhash = &blurhash.String
+		}
+		if smallWidth.Valid {
+			p.Width = int(smallWidth.Int32)
+		}
+		if smallHeight.Valid {
+			p.Height = int(smallHeight.Int32)
+		}
+		if takenAt.Valid {
+			p.TakenAt = &takenAt.Time
+		}
+		if duration.Valid {
+			d := int(duration.Int32)
+			p.Duration = &d
+		}
+		if deletedAt.Valid {
+			p.DeletedAt = &deletedAt.Time
+		}
+
+		photos = append(photos, p)
+	}
+
+	// Check if there are more results
+	var nextCursor *PhotoCursor
+	if len(photos) > limit {
+		photos = photos[:limit]
+		last := photos[len(photos)-1]
+		// Reuse TakenAt field in cursor to carry deleted_at for trash pagination
+		nextCursor = &PhotoCursor{
+			TakenAt: last.DeletedAt,
+			ID:      last.ID,
+		}
+	}
+
+	return photos, nextCursor, nil
+}
+
 // GetPhoto returns full photo details by ID.
 func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 	query := `
@@ -352,7 +451,7 @@ func (s *Storage) GetPhoto(ctx context.Context, id string) (*Photo, error) {
 			iso, aperture, shutter_speed, focal_length, flash,
 			gps_lat, gps_lon, gps_altitude, place_id
 		FROM photos
-		WHERE id = $1
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	var p Photo
@@ -526,6 +625,86 @@ func (s *Storage) SoftDeletePhotos(ctx context.Context, ids []string) (int64, er
 	return result.RowsAffected(), nil
 }
 
+// RestorePhotos restores soft-deleted photos from trash.
+// Returns the number of photos actually restored.
+func (s *Storage) RestorePhotos(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	result, err := s.db.Exec(ctx,
+		"UPDATE photos SET deleted_at = NULL WHERE id = ANY($1) AND deleted_at IS NOT NULL", ids)
+	if err != nil {
+		return 0, fmt.Errorf("restore photos: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// PermanentDeletePhotos permanently deletes photos from trash (deleted_at IS NOT NULL).
+// Returns photo info needed for file cleanup.
+// If ids is nil, deletes ALL photos in trash.
+func (s *Storage) PermanentDeletePhotos(ctx context.Context, ids []string) ([]Photo, error) {
+	var query string
+	var args []interface{}
+
+	if len(ids) == 0 {
+		// Delete all trash
+		query = "DELETE FROM photos WHERE deleted_at IS NOT NULL RETURNING id, type, original_filename"
+	} else {
+		// Delete specific photos from trash only
+		query = "DELETE FROM photos WHERE id = ANY($1) AND deleted_at IS NOT NULL RETURNING id, type, original_filename"
+		args = append(args, ids)
+	}
+
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("permanent delete photos: %w", err)
+	}
+	defer rows.Close()
+
+	var photos []Photo
+	for rows.Next() {
+		var p Photo
+		var filename sql.NullString
+		if err := rows.Scan(&p.ID, &p.Type, &filename); err != nil {
+			return nil, fmt.Errorf("scan deleted photo: %w", err)
+		}
+		if filename.Valid {
+			p.OriginalFilename = &filename.String
+		}
+		photos = append(photos, p)
+	}
+
+	return photos, nil
+}
+
+// PurgeExpiredTrash permanently deletes photos that have been in trash longer than the given duration.
+// Returns photo info needed for file cleanup.
+func (s *Storage) PurgeExpiredTrash(ctx context.Context, maxAge time.Duration) ([]Photo, error) {
+	rows, err := s.db.Query(ctx,
+		"DELETE FROM photos WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - $1::interval RETURNING id, type, original_filename",
+		maxAge.String())
+	if err != nil {
+		return nil, fmt.Errorf("purge expired trash: %w", err)
+	}
+	defer rows.Close()
+
+	var photos []Photo
+	for rows.Next() {
+		var p Photo
+		var filename sql.NullString
+		if err := rows.Scan(&p.ID, &p.Type, &filename); err != nil {
+			return nil, fmt.Errorf("scan purged photo: %w", err)
+		}
+		if filename.Valid {
+			p.OriginalFilename = &filename.String
+		}
+		photos = append(photos, p)
+	}
+
+	return photos, nil
+}
+
 // SetPhotoFavorite sets the favorite status of a photo.
 func (s *Storage) SetPhotoFavorite(ctx context.Context, id string, favorite bool) error {
 	_, err := s.db.Exec(ctx, `
@@ -537,7 +716,7 @@ func (s *Storage) SetPhotoFavorite(ctx context.Context, id string, favorite bool
 // PhotoExists checks if a photo exists.
 func (s *Storage) PhotoExists(ctx context.Context, id string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM photos WHERE id = $1)", id).Scan(&exists)
+	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM photos WHERE id = $1 AND deleted_at IS NULL)", id).Scan(&exists)
 	return exists, err
 }
 

@@ -28,10 +28,10 @@ func (s *Storage) GetStats(ctx context.Context) (*Stats, error) {
 	// Count photos and videos
 	err := s.db.QueryRow(ctx, `
 		SELECT
-			COUNT(*) FILTER (WHERE type = 'photo' AND status = 'ready') as photos,
-			COUNT(*) FILTER (WHERE type = 'video' AND status = 'ready') as videos,
-			COUNT(*) FILTER (WHERE is_favorite = true AND status = 'ready') as favorites,
-			COALESCE(SUM(COALESCE(size_small, 0) + COALESCE(size_large, 0) + COALESCE(size_original, 0)) FILTER (WHERE status = 'ready'), 0) as storage
+			COUNT(*) FILTER (WHERE type = 'photo' AND status = 'ready' AND deleted_at IS NULL) as photos,
+			COUNT(*) FILTER (WHERE type = 'video' AND status = 'ready' AND deleted_at IS NULL) as videos,
+			COUNT(*) FILTER (WHERE is_favorite = true AND status = 'ready' AND deleted_at IS NULL) as favorites,
+			COALESCE(SUM(COALESCE(size_small, 0) + COALESCE(size_large, 0) + COALESCE(size_original, 0)) FILTER (WHERE status = 'ready' AND deleted_at IS NULL), 0) as storage
 		FROM photos
 	`).Scan(&stats.TotalPhotos, &stats.TotalVideos, &stats.TotalFavorites, &stats.StorageBytes)
 	if err != nil {
@@ -55,7 +55,7 @@ func (s *Storage) GetStats(ctx context.Context) (*Stats, error) {
 	err = s.db.QueryRow(ctx, `
 		SELECT MIN(taken_at), MAX(taken_at)
 		FROM photos
-		WHERE status = 'ready' AND taken_at IS NOT NULL
+		WHERE status = 'ready' AND taken_at IS NOT NULL AND deleted_at IS NULL
 	`).Scan(&oldest, &newest)
 	if err != nil {
 		return nil, fmt.Errorf("query date range: %w", err)

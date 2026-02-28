@@ -52,6 +52,12 @@ func main() {
 
 	logger.Info("connected to database and redis")
 
+	// Run database migrations
+	if err := storage.RunMigrations(logger, cfg.DatabaseURL, cfg.MigrationsPath); err != nil {
+		logger.Error("failed to run migrations", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Initialize JWT auth
 	jwtAuth := auth.NewJWTAuth(cfg.JWTSecret, cfg.JWTExpiry)
 
@@ -73,6 +79,9 @@ func main() {
 
 	// Start event cleanup in background
 	go handlers.StartEventCleanup(ctx, store, logger, 24*time.Hour)
+
+	// Start trash auto-purge in background (permanently delete after 30 days)
+	go handlers.StartTrashCleanup(ctx, store, cfg, logger, 30*24*time.Hour)
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)

@@ -39,6 +39,7 @@ func (s *Storage) GetFolderListing(ctx context.Context, path string) (*FolderLis
 		SELECT original_path, COUNT(*) as cnt
 		FROM photos
 		WHERE status = 'ready'
+			AND deleted_at IS NULL
 			AND original_path IS NOT NULL
 			AND original_path != ''
 			AND original_path LIKE '%/%'

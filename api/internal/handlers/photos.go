@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/imgable/api/internal/auth"
@@ -52,6 +54,7 @@ type PhotoItem struct {
 	TakenAt    *int64  `json:"taken_at,omitempty"` // Unix timestamp for smaller JSON
 	IsFavorite bool    `json:"is_favorite"`
 	Duration   *int    `json:"duration,omitempty"`
+	DeletedAt  *int64  `json:"deleted_at,omitempty"` // Unix timestamp, only in trash mode
 }
 
 // GroupsResponse represents photo groups response.
@@ -92,10 +95,12 @@ func (h *PhotosHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
 //   - north, south, east, west: Geographic bounds filter (all required together)
 //   - path: Filter by folder path (returns photos from this folder and all subfolders by default)
 //   - recursive: Include subfolders "true" (default) or "false" (only direct photos)
+//   - trash: If "true", return only soft-deleted photos sorted by deleted_at DESC (other filters ignored)
 func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	recursiveStr := r.URL.Query().Get("recursive")
 	recursive := recursiveStr != "false" // default true
+	trash := r.URL.Query().Get("trash") == "true"
 
 	params := storage.PhotoListParams{
 		Limit:           parseIntParam(r, "limit", 100),
@@ -105,6 +110,7 @@ func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 		Order:           r.URL.Query().Get("order"),
 		FolderPath:      r.URL.Query().Get("path"),
 		FolderRecursive: recursive,
+		Trash:           trash,
 	}
 
 	// Parse cursor
@@ -153,6 +159,10 @@ func (h *PhotosHandler) List(w http.ResponseWriter, r *http.Request) {
 		if p.TakenAt != nil {
 			ts := p.TakenAt.Unix()
 			items[i].TakenAt = &ts
+		}
+		if p.DeletedAt != nil {
+			ts := p.DeletedAt.Unix()
+			items[i].DeletedAt = &ts
 		}
 	}
 
@@ -422,6 +432,86 @@ func (h *PhotosHandler) BulkDelete(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, BulkDeleteResponse{Deleted: int(deleted)})
 }
 
+// TrashDeleteRequest represents a request to permanently delete photos from trash.
+// If IDs is empty, all photos in trash are deleted.
+type TrashDeleteRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// TrashDeleteResponse represents the response after permanently deleting from trash.
+type TrashDeleteResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// TrashDelete handles DELETE /api/v1/trash.
+// Permanently deletes photos from trash and removes files from disk.
+// If ids are provided, deletes only those photos. If ids are empty, clears entire trash.
+func (h *PhotosHandler) TrashDelete(w http.ResponseWriter, r *http.Request) {
+	var req TrashDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Empty body is fine -- means "delete all"
+		req.IDs = nil
+	}
+
+	if len(req.IDs) > 100 {
+		response.BadRequest(w, "maximum 100 photos per request")
+		return
+	}
+
+	photos, err := h.storage.PermanentDeletePhotos(r.Context(), req.IDs)
+	if err != nil {
+		h.logger.Error("failed to permanently delete photos", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	// Delete files from disk
+	for _, photo := range photos {
+		h.deletePhotoFiles(&photo)
+	}
+
+	response.OK(w, TrashDeleteResponse{Deleted: len(photos)})
+}
+
+// TrashRestoreRequest represents a request to restore photos from trash.
+type TrashRestoreRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// TrashRestoreResponse represents the response after restoring photos.
+type TrashRestoreResponse struct {
+	Restored int `json:"restored"`
+}
+
+// TrashRestore handles POST /api/v1/trash/restore.
+// Restores soft-deleted photos back to the library.
+func (h *PhotosHandler) TrashRestore(w http.ResponseWriter, r *http.Request) {
+	var req TrashRestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		response.BadRequest(w, "ids is required")
+		return
+	}
+
+	if len(req.IDs) > 100 {
+		response.BadRequest(w, "maximum 100 photos per request")
+		return
+	}
+
+	restored, err := h.storage.RestorePhotos(r.Context(), req.IDs)
+	if err != nil {
+		h.logger.Error("failed to restore photos", slog.Any("error", err))
+		response.InternalError(w)
+		return
+	}
+
+	response.OK(w, TrashRestoreResponse{Restored: int(restored)})
+}
+
 // AddFavorite handles POST /api/v1/photos/:id/favorite.
 func (h *PhotosHandler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -497,23 +587,7 @@ func getVideoExtension(filename *string) string {
 
 // deletePhotoFiles removes photo files from disk.
 func (h *PhotosHandler) deletePhotoFiles(photo *storage.Photo) {
-	basePath := filepath.Join(h.config.MediaPath, photo.ID[:2], photo.ID[2:4])
-
-	// Delete previews
-	os.Remove(filepath.Join(basePath, photo.ID+"_s.webp"))
-	if photo.Type == "photo" {
-		os.Remove(filepath.Join(basePath, photo.ID+"_l.webp"))
-	}
-
-	// Delete video original
-	if photo.Type == "video" {
-		// Try common extensions
-		os.Remove(filepath.Join(basePath, photo.ID+".mp4"))
-		os.Remove(filepath.Join(basePath, photo.ID+".mov"))
-		os.Remove(filepath.Join(basePath, photo.ID+".avi"))
-		os.Remove(filepath.Join(basePath, photo.ID+".mkv"))
-		os.Remove(filepath.Join(basePath, photo.ID+".webm"))
-	}
+	deletePhotoFilesFromDisk(h.config.MediaPath, photo)
 }
 
 // parseIntParam parses an integer query parameter with default.
@@ -584,4 +658,53 @@ func parseGeoBounds(r *http.Request) (*storage.GeoBounds, error) {
 		East:  east,
 		West:  west,
 	}, nil
+}
+
+// StartTrashCleanup starts a background goroutine that permanently deletes
+// photos that have been in trash longer than maxAge.
+// Runs every hour, deletes files from disk and records from the database.
+func StartTrashCleanup(ctx context.Context, store *storage.Storage, cfg *config.Config, logger *slog.Logger, maxAge time.Duration) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			photos, err := store.PurgeExpiredTrash(ctx, maxAge)
+			if err != nil {
+				logger.Error("failed to purge expired trash", slog.Any("error", err))
+				continue
+			}
+			if len(photos) > 0 {
+				// Delete files from disk
+				for _, photo := range photos {
+					deletePhotoFilesFromDisk(cfg.MediaPath, &photo)
+				}
+				logger.Info("purged expired trash", slog.Int("deleted", len(photos)))
+			}
+		}
+	}
+}
+
+// deletePhotoFilesFromDisk removes photo files from disk given a media path.
+// Standalone function usable from both handlers and background goroutines.
+func deletePhotoFilesFromDisk(mediaPath string, photo *storage.Photo) {
+	basePath := filepath.Join(mediaPath, photo.ID[:2], photo.ID[2:4])
+
+	// Delete previews
+	os.Remove(filepath.Join(basePath, photo.ID+"_s.webp"))
+	if photo.Type == "photo" {
+		os.Remove(filepath.Join(basePath, photo.ID+"_l.webp"))
+	}
+
+	// Delete video original
+	if photo.Type == "video" {
+		os.Remove(filepath.Join(basePath, photo.ID+".mp4"))
+		os.Remove(filepath.Join(basePath, photo.ID+".mov"))
+		os.Remove(filepath.Join(basePath, photo.ID+".avi"))
+		os.Remove(filepath.Join(basePath, photo.ID+".mkv"))
+		os.Remove(filepath.Join(basePath, photo.ID+".webm"))
+	}
 }

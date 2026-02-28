@@ -73,6 +73,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 			r.Post("/photos/{id}/favorite", photosHandler.AddFavorite)
 			r.Delete("/photos/{id}/favorite", photosHandler.RemoveFavorite)
 
+			// Trash (soft-deleted photos)
+			r.Delete("/trash", photosHandler.TrashDelete)
+			r.Post("/trash/restore", photosHandler.TrashRestore)
+
 			// Albums
 			r.Get("/albums", albumsHandler.List)
 			r.Post("/albums", albumsHandler.Create)

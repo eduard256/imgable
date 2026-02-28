@@ -767,6 +767,7 @@ func (s *Storage) GetPersonPhotos(ctx context.Context, params PersonPhotosParams
 		WHERE f.person_id = $1
 			AND pf.hidden = $2
 			AND ph.status = 'ready'
+			AND ph.deleted_at IS NULL
 			%s
 		ORDER BY ph.taken_at DESC NULLS LAST, ph.id DESC
 		LIMIT $%d
@@ -1052,6 +1053,7 @@ func (s *Storage) GetGroupPhotos(ctx context.Context, params GroupPhotosParams) 
 		WHERE ph.ai_person_ids @> $1
 			AND array_length(ph.ai_person_ids, 1) >= $2
 			AND ph.status = 'ready'
+			AND ph.deleted_at IS NULL
 			%s
 			%s
 		ORDER BY ph.taken_at DESC NULLS LAST, ph.id DESC
