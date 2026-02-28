@@ -49,6 +49,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	eventsHandler := handlers.NewEventsHandler(deps.Storage, deps.Logger)
 	filesHandler := files.NewHandler(deps.Config, deps.JWTAuth, deps.Logger)
 	mapHandler := handlers.NewMapHandler(deps.Storage, deps.Config, deps.Logger)
+	foldersHandler := handlers.NewFoldersHandler(deps.Storage, deps.Logger)
 
 	// Auth middleware
 	requireAuth := auth.Middleware(deps.JWTAuth)
@@ -105,6 +106,9 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// Map (photo coordinates with clustering)
 			r.Get("/map/clusters", mapHandler.GetClusters)
 			r.Get("/map/bounds", mapHandler.GetBounds)
+
+			// Folders (virtual filesystem from original import paths)
+			r.Get("/folders", foldersHandler.List)
 
 			// Shares
 			r.Get("/shares", sharesHandler.List)
