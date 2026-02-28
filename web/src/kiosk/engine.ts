@@ -12,9 +12,8 @@
 // DOM elements.
 // ============================================================
 
-import type { PhotoTransform, Effect, PhotoSlot } from './types'
+import type { PhotoTransform, Effect } from './types'
 import { ALL_EFFECTS } from './effects'
-import type { ImagePreloader } from './preloader'
 
 // ---- Easing ----
 

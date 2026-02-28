@@ -242,7 +242,7 @@ export function useDragSelect({ photos, scrollRef, gridRef }: UseDragSelectOptio
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return
-    if (e.pointerType === 'touch' && e.isPrimary === false) return
+    if (e.pointerType === 'touch' && !e.isPrimary) return
 
     lastPointerPos.current = { x: e.clientX, y: e.clientY }
     longPressTriggered.current = false

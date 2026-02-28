@@ -14,7 +14,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { t } from '../lib/i18n'
 import { ImagePreloader } from '../kiosk/preloader'
 import { KioskEngine } from '../kiosk/engine'
-import type { PhotoTransform } from '../kiosk/types'
 
 // ---- Constants ----
 
@@ -206,7 +205,7 @@ export default function KioskPage({ code }: { code: string }) {
 
     const engine = new KioskEngine(
       {
-        assignPhoto(slotIndex, size) {
+        assignPhoto(_slotIndex, size) {
           const id = preloader.next()
           // Trigger preloading of next batch
           preloader.preloadNext(PRELOAD_AHEAD, size)

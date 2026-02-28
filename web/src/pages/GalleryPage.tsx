@@ -6,7 +6,7 @@ import UploadManager from '../components/UploadManager'
 import type { UploadManagerHandle } from '../components/UploadManager'
 import PhotoViewer from '../components/PhotoViewer'
 import type { ViewerPhoto } from '../components/PhotoViewer'
-import { SelectBarBtn, AlbumPickerModal, BulkShareModal, BulkKioskModal, SelectModalOverlay, modalInputStyle } from '../components/SelectionBar'
+import { SelectBarBtn, AlbumPickerModal, BulkShareModal, BulkKioskModal } from '../components/SelectionBar'
 import type { PickerAlbum } from '../components/SelectionBar'
 import { useDragSelect } from '../hooks/useDragSelect'
 
