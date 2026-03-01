@@ -1,380 +1,251 @@
-# Imgable
+# imgable
 
-A self-hosted family photo gallery with automatic photo processing, organization, and beautiful viewing experience.
+Self-hosted family photo gallery. One password, zero accounts, no nonsense.
+
+> **Beta.** This project is under active development. Keep backups of your originals.
+> For a stable, battle-tested solution, check out [Immich](https://immich.app).
+
+![imgable demo](https://github.com/eduard256/imgable/releases/download/v0.1.2/imgable_860.gif)
+
+## Why
+
+Every photo gallery out there ships with accounts, roles, notes, file managers, and a dozen features nobody asked for. Then it chokes on 10k photos.
+
+imgable is the opposite. One password for the whole family. Drag your photos onto an SMB share. Walk away. Come back to a fully indexed, instantly browsable library with AI face recognition, location mapping, and OCR date extraction from old printed photos. No scripts, no CLI uploaders, no setup wizards.
+
+The heavy lifting happens once during import. After that, everything loads instantly.
 
 ## Features
 
-- **Automatic Processing**: Drop photos anywhere in the uploads folder - they're automatically processed
-- **Format Support**: JPEG, PNG, HEIC (iPhone), RAW formats, and video files
-- **Smart Organization**: Automatic grouping by date and GPS location
-- **Fast Loading**: Three preview sizes + blurhash placeholders for instant display
-- **Crash Recovery**: Processing state persists across restarts
-- **Failed File Handling**: Problematic files moved to `/failed` with error details
+- **One password, whole family** -- no accounts, no roles, no forgotten passwords
+- **SMB upload** -- mount a network drive, drop 100k photos in any folder structure, duplicates handled automatically
+- **AI face recognition** -- detects faces, clusters them, you just name the person
+- **Object & scene tagging** -- beach, dog, sunset -- all automatic via CLIP
+- **OCR date extraction** -- reads printed dates from old scanned photos and sets the timestamp
+- **Interactive map** -- photos plotted by GPS with clustering
+- **Instant browsing** -- photos pre-processed into optimized WebP, blurhash placeholders, smooth infinite scroll
+- **Photo viewer** -- desktop coverflow with filmstrip, mobile swipe with pinch-to-zoom
+- **Albums** -- manual + automatic place-based albums
+- **Folders** -- browse by original import directory structure
+- **Sharing** -- public links with optional password and expiration
+- **Kiosk mode** -- fullscreen TV slideshow with 20 visual effects
+- **Trash** -- soft delete with 30-day auto-purge
+- **Real-time updates** -- SSE event stream, live processing status
+- **Drag-select** -- long-press and drag to select multiple photos
+- **Reverse geocoding** -- automatic place names from GPS via Nominatim
+- **i18n** -- English and Russian
 
 ## Architecture
 
 ```
-                         ┌─────────────┐
-                         │     API     │
-                         │   :9812     │
-                         │  (frontend) │
-                         └──────┬──────┘
-                                │
-       ┌────────────────────────┼────────────────────────┐
-       │                        │                        │
-┌──────▼──────┐          ┌──────▼──────┐          ┌──────▼──────┐
-│   Scanner   │─────────▶│  Processor  │          │   Places    │
-│   :8001     │  queue   │   :8002     │          │   :8003     │
-└─────────────┘          └─────────────┘          └─────────────┘
-                                │                        │
-                                └────────────┬───────────┘
-                                             │
-                        ┌────────────────────┼────────────────────┐
-                        │                    │                    │
-                  ┌─────▼─────┐        ┌─────▼─────┐        ┌─────▼─────┐
-                  │   Redis   │        │ PostgreSQL│        │ Nominatim │
-                  │   :6379   │        │   :5432   │        │ (external)│
-                  └───────────┘        └───────────┘        └───────────┘
+                    ┌──────────────────────────────────────────────────────┐
+                    │                    Port 9812                         │
+  Browser ────────► │  API (Go) -- REST API + React SPA + file serving    │
+                    └──────┬────────────┬────────────┬────────────┬───────┘
+                           │            │            │            │
+                    ┌──────▼──┐  ┌──────▼──┐  ┌─────▼───┐  ┌────▼────┐
+  SMB share ──►     │ Scanner │  │Processor│  │ Places  │  │   AI    │
+  /uploads/         │  (Go)   │  │(Go+vips)│  │  (Go)   │  │(Python) │
+                    └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘
+                         │            │            │            │
+                    ┌────▼────┐  ┌────▼────────────▼────────────▼────┐
+                    │  Redis  │  │           PostgreSQL               │
+                    └─────────┘  └───────────────────────────────────┘
 ```
 
-### Services
+| Service | What it does | Port |
+|---|---|---|
+| **API** | REST API, serves React frontend, JWT auth, file serving | 9812 |
+| **Scanner** | Watches `/uploads` for new files, queues them via Redis | 8001 |
+| **Processor** | Creates WebP previews, extracts EXIF/GPS, generates blurhash | 8002 |
+| **Places** | Reverse geocoding via Nominatim, creates place albums | 8003 |
+| **AI** | Face detection (SCRFD), recognition (ArcFace), CLIP tags, OCR | 8004 |
+| **SMB** | Samba network share for drag-and-drop uploads | 445 |
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **API** | 9812 | Main HTTP API for frontend, authentication, file serving |
-| **Scanner** | 8001 | Watches `/uploads` for new files, queues them for processing |
-| **Processor** | 8002 | Processes files: creates previews, extracts metadata |
-| **Places** | 8003 | Assigns photos to places using reverse geocoding (Nominatim) |
-| **PostgreSQL** | 5432 | Stores all metadata, albums, places |
-| **Redis** | 6379 | Task queue (Asynq) and pub/sub for events |
+All internal services bind to `127.0.0.1`. Only port 9812 is exposed externally.
 
-## Quick Start
+## Quick Start (any Linux)
 
-### Prerequisites
+### 1. Install Docker
 
-- Docker and Docker Compose
-- At least 2GB RAM recommended
-- Storage for photos
-
-### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/eduard256/imgable.git
-cd imgable
+# Ubuntu/Debian
+apt update && apt upgrade -y
+apt install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+echo "Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc" > /etc/apt/sources.list.d/docker.sources
+
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-2. Create configuration:
+### 2. Install imgable
+
 ```bash
+mkdir -p /opt/imgable && cd /opt/imgable
+
+curl -O https://raw.githubusercontent.com/eduard256/imgable/master/docker-compose.yml
+curl -O https://raw.githubusercontent.com/eduard256/imgable/master/.env.example
 cp .env.example .env
-# Edit .env to set your paths and passwords
 ```
 
-3. Create data directory (subdirectories are created automatically):
+### 3. Configure
+
+Edit `.env`:
+
 ```bash
-mkdir -p /data/imgable
+nano .env
 ```
 
-4. Start the services:
+```env
+# Password for web interface (REQUIRED)
+IMGABLE_PASSWORD=your-password
+
+# Where to store everything (photos, database, previews)
+DATA_PATH=/data/imgable
+
+# Enable SMB network share for uploads (optional)
+COMPOSE_PROFILES=smb
+```
+
+### 4. Run
+
 ```bash
 docker compose up -d
 ```
 
-5. Check status:
-```bash
-# Scanner status
-curl http://localhost:8001/status
+Wait for all containers to become healthy (AI may take up to 2 minutes on first start):
 
-# Processor status
-curl http://localhost:8002/status
+```bash
+docker compose ps
 ```
 
-### Usage
+### 5. Open
 
-1. **Upload photos**: Copy files to `/data/imgable/uploads` (or `$DATA_PATH/uploads`)
-   - Any folder structure is supported
-   - Supported formats: JPEG, PNG, HEIC, HEIF, WebP, GIF, TIFF, RAW, CR2, CR3, ARW, NEF, DNG
-   - Supported videos: MP4, MOV, AVI, MKV, WebM
+| Service | Address |
+|---|---|
+| Web interface | `http://<your-ip>:9812` |
+| SMB share | `\\<your-ip>\Uploads` (Windows) or `smb://<your-ip>/Uploads` (macOS/Linux) |
 
-2. **Monitor progress**: Check the processor status endpoint
+SMB login: `imgable` / your `IMGABLE_PASSWORD`.
+
+### 6. Upload photos
+
+Mount the SMB share as a network drive and drag your photos in. Any folder structure works. Duplicates are automatically skipped. Processing starts immediately.
+
+## Proxmox LXC Installation
+
+If you're running Proxmox, imgable works perfectly in an unprivileged LXC container.
+
+### Create the container
+
+In Proxmox UI:
+
+| Setting | Value |
+|---|---|
+| Template | Ubuntu 22.04 or 24.04 |
+| Unprivileged | Yes |
+| Features | `nesting=1` (required for Docker) |
+| CPU | 4+ cores |
+| RAM | 8192 MB+ |
+| Disk | 32 GB (system) |
+
+### Mount your photo storage
+
+On the Proxmox **host** (replace `100` with your container ID):
+
 ```bash
-curl http://localhost:8002/status | jq
+mkdir -p /DATA/Gallery
+pct set 100 --mp0 /DATA/Gallery,mp=/mnt/Gallery
+pct stop 100 && pct start 100
 ```
 
-3. **View failed files**: If any files fail processing
+Inside the container, fix permissions for Docker's UID remapping:
+
 ```bash
-curl http://localhost:8002/failed | jq
+chmod -R 777 /mnt/Gallery
 ```
 
-4. **Retry failed files**:
+### Install
+
+Follow the [Quick Start](#quick-start-any-linux) above, but set `DATA_PATH` to your mount:
+
+```env
+DATA_PATH=/mnt/Gallery/imgable
+```
+
+## Updating
+
 ```bash
-curl -X POST http://localhost:8002/retry/2025-02-03/photo.jpg
+cd /opt/imgable
+curl -O https://raw.githubusercontent.com/eduard256/imgable/master/docker-compose.yml
+docker compose pull
+docker compose up -d
 ```
 
 ## Configuration
 
-### Environment Variables
+All settings via `.env`. Only `IMGABLE_PASSWORD` is required.
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `POSTGRES_PASSWORD` | `imgable` | Database password |
-| `DATA_PATH` | `/data/imgable` | Root directory for all data (uploads, media, failed created automatically) |
-| `IMGABLE_PASSWORD` | *required* | Password for web authentication |
-| `JWT_EXPIRY_DAYS` | `30` | JWT token expiry in days |
-| `API_PORT` | `9812` | External port for API server |
-| `WORKERS` | `4` | Number of concurrent processor workers |
-| `MAX_MEMORY_MB` | `1024` | Memory limit for processor |
-| `PREVIEW_QUALITY` | `85` | WebP quality (1-100) |
-| `PREVIEW_SMALL_PX` | `800` | Small preview size (longest edge) |
-| `PREVIEW_LARGE_PX` | `2500` | Large preview size |
-| `SCAN_INTERVAL_SEC` | `60` | Polling interval (fallback for fsnotify) |
-| `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | Nominatim API URL for geocoding |
-| `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
-| `LOG_FORMAT` | `text` | Log format: text or json |
+|---|---|---|
+| `IMGABLE_PASSWORD` | -- | Web interface password **(required)** |
+| `DATA_PATH` | `/data/imgable` | Root path for all data |
+| `API_PORT` | `9812` | Web interface port |
+| `COMPOSE_PROFILES` | -- | Set to `smb` to enable network share |
+| `WORKERS` | `4` | Parallel processing threads |
+| `PREVIEW_QUALITY` | `85` | WebP preview quality (1-100) |
+| `AI_THREADS` | `0` (auto) | CPU threads for AI processing |
+| `AI_AUTO_START` | `true` | Start AI processing on boot |
+| `LOG_LEVEL` | `info` | Logging verbosity |
 
-## API Endpoints
+## Data Structure
 
-### Scanner Service (:8001)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/status` | GET | Scanner status and statistics |
-| `/rescan` | POST | Trigger full directory rescan |
-| `/metrics` | GET | Prometheus metrics |
-
-### Processor Service (:8002)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/status` | GET | Queue and worker statistics |
-| `/pause` | POST | Pause processing |
-| `/resume` | POST | Resume processing |
-| `/failed` | GET | List failed files |
-| `/retry/:path` | POST | Retry a failed file |
-| `/failed/:path` | DELETE | Delete a failed file |
-| `/metrics` | GET | Prometheus metrics |
-
-### Places Service (:8003)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/v1/status` | GET | Current status and pending photos count |
-| `/api/v1/run` | POST | Trigger manual geocoding run |
-
-### API Service (:9812)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/v1/login` | POST | Authentication (returns JWT) |
-| `/api/v1/photos` | GET | List photos with pagination |
-| `/api/v1/photos/{id}` | GET/PATCH/DELETE | Photo operations |
-| `/api/v1/albums` | GET/POST | List/create albums |
-| `/api/v1/albums/{id}` | GET/PATCH/DELETE | Album operations |
-| `/api/v1/places` | GET | List places |
-| `/api/v1/map/clusters` | GET | Get photo clusters for map view |
-| `/api/v1/map/bounds` | GET | Get bounds of all photos |
-| `/api/v1/shares` | GET/POST | List/create share links |
-| `/api/v1/stats` | GET | Gallery statistics |
-| `/api/v1/upload` | POST | Upload new photos |
-| `/api/v1/events/stream` | GET | SSE events stream |
-| `/api/v1/sync/*` | * | Proxy to scanner/processor/places |
-| `/s/{code}` | GET | Public share access (no auth) |
-
-## File Processing Flow
+After first run, `DATA_PATH` will contain:
 
 ```
-/data/uploads/photo.jpg
-        │
-        ▼
-   [Scanner] ──────▶ Redis Queue
-        │
-        ▼
-   [Processor]
-        │
-        ├── Calculate SHA256 hash → ID
-        ├── Check for duplicates
-        ├── Extract EXIF metadata
-        ├── Create previews (libvips)
-        │   ├── small:  800px   ~30KB
-        │   └── large:  2500px  ~150KB
-        ├── Generate blurhash
-        ├── Extract GPS coordinates
-        ├── Save to database
-        └── Delete original
-        │
-        ▼
-   /data/media/ab/c1/abc123def456_s.webp
-                    abc123def456_l.webp
+/data/imgable/
+├── uploads/    # drop photos here (via SMB or manually)
+├── media/      # processed previews and originals
+├── failed/     # files that failed processing
+└── db/
+    ├── postgres/
+    ├── redis/
+    └── api/
 ```
 
-## Storage Structure
+## Resource Usage
 
-```
-/data/
-├── uploads/          # Input (any structure)
-│   └── **/*.*
-│
-├── media/            # Output (organized by hash)
-│   └── ab/
-│       └── c1/
-│           ├── abc123def456_s.webp   # Small preview
-│           ├── abc123def456_l.webp   # Large preview
-│           └── video789abc.mp4       # Video original
-│
-└── failed/           # Problem files
-    └── 2025-02-03/
-        ├── photo.jpg           # Original file
-        └── photo.jpg.error     # Error details (JSON)
-```
+| Service | Limit | Idle |
+|---|---|---|
+| PostgreSQL | 512 MB | ~50 MB |
+| Redis | 300 MB | ~4 MB |
+| API | 256 MB | ~4 MB |
+| Scanner | 128 MB | ~3 MB |
+| Processor | 1 GB | ~13 MB |
+| Places | 64 MB | ~4 MB |
+| AI | 2 GB | ~70 MB |
+| SMB | 128 MB | ~21 MB |
+| **Total** | **~4.5 GB** | **~170 MB** |
 
-## Monitoring
+## Tech Stack
 
-### Prometheus Metrics
-
-Scanner metrics:
-- `scanner_files_discovered_total` - Total files found
-- `scanner_files_queued_total` - Files added to queue
-- `scanner_files_skipped_total` - Duplicates/unsupported skipped
-- `scanner_scan_duration_seconds` - Scan duration histogram
-
-Processor metrics:
-- `processor_tasks_processed_total` - Tasks completed
-- `processor_tasks_failed_total` - Tasks failed
-- `processor_processing_duration_seconds` - Processing time histogram
-- `processor_queue_size` - Current queue size
-- `processor_active_workers` - Active worker count
-
-### Example Status Response
-
-```json
-{
-  "status": "running",
-  "paused": false,
-  "uptime_seconds": 3600,
-  "workers": {
-    "total": 4,
-    "active": 2,
-    "idle": 2
-  },
-  "queue": {
-    "pending": 150,
-    "processing": 2,
-    "completed_total": 5000,
-    "failed_total": 12
-  }
-}
-```
-
-## Development
-
-### Project Structure
-
-```
-imgable/
-├── docker-compose.yml
-├── .env.example
-├── migrations/
-│   └── 001_init.sql
-├── shared/           # Shared Go packages
-│   └── pkg/
-│       ├── database/
-│       ├── queue/
-│       ├── logger/
-│       ├── fileutil/
-│       └── models/
-├── scanner/          # Scanner service
-│   ├── Dockerfile
-│   └── internal/
-│       ├── watcher/
-│       ├── queue/
-│       └── api/
-├── processor/        # Processor service
-│   ├── Dockerfile
-│   └── internal/
-│       ├── worker/
-│       ├── image/
-│       ├── video/
-│       ├── metadata/
-│       ├── geo/
-│       └── api/
-├── places/           # Places service (geocoding)
-│   ├── Dockerfile
-│   └── internal/
-│       ├── worker/
-│       ├── nominatim/
-│       └── api/
-└── api/              # Main API server
-    ├── Dockerfile
-    └── internal/
-        ├── server/
-        ├── handlers/
-        ├── storage/
-        ├── auth/
-        └── files/
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-cd shared && go test ./...
-cd ../scanner && go test ./...
-cd ../processor && go test ./...
-
-# With coverage
-go test -cover ./...
-```
-
-### Building Locally
-
-```bash
-# Build scanner
-cd scanner && go build -o ../bin/scanner ./cmd
-
-# Build processor (requires libvips)
-cd processor && CGO_ENABLED=1 go build -o ../bin/processor ./cmd
-```
-
-## Troubleshooting
-
-### Files not being processed
-
-1. Check scanner logs: `docker compose logs scanner`
-2. Verify file permissions on uploads directory
-3. Check if file format is supported
-4. Trigger manual rescan: `curl -X POST http://localhost:8001/rescan`
-
-### Processing too slow
-
-1. Increase worker count in `.env`: `WORKERS=8`
-2. Increase memory limit: `MAX_MEMORY_MB=2048`
-3. Check for resource constraints: `docker stats`
-
-### Files going to /failed
-
-1. Check the `.error` file for details
-2. Common issues:
-   - Corrupted image file
-   - Unsupported RAW format
-   - File modified during processing
-
-### Database connection issues
-
-1. Check PostgreSQL logs: `docker compose logs postgres`
-2. Verify DATABASE_URL in environment
-3. Check if migrations ran successfully
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 4, MapLibre GL |
+| API | Go, chi, pgx, JWT |
+| Processing | Go, libvips, ffmpeg |
+| AI | Python, FastAPI, ONNX Runtime, SCRFD, ArcFace, CLIP, RapidOCR |
+| Database | PostgreSQL 16, Redis 7 |
+| Queue | Asynq (Redis-based) |
 
 ## License
 
-MIT License
-
-## Credits
-
-- [libvips](https://libvips.github.io/libvips/) - Fast image processing
-- [govips](https://github.com/davidbyttow/govips) - Go bindings for libvips
-- [Asynq](https://github.com/hibiken/asynq) - Redis-based task queue
-- [FFmpeg](https://ffmpeg.org/) - Video processing
+MIT
