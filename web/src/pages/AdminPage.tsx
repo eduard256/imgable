@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getSavedPassword } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 
 // ============================================================
@@ -10,6 +10,27 @@ import { t, getLang } from '../lib/i18n'
 // Processing metrics, Shared links, Failed files.
 // Single scrollable page, fully responsive.
 // ============================================================
+
+// ---- Clipboard helper (works over HTTP without Clipboard API) ----
+
+function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => copyFallback(text))
+  } else {
+    copyFallback(text)
+  }
+}
+
+function copyFallback(text: string) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
 
 // ---- Glass card styles (reused throughout) ----
 
@@ -346,7 +367,7 @@ function ShareCard({ share, onDelete }: { share: Share; onDelete: (id: string) =
   const fullUrl = `${window.location.origin}${share.url}`
 
   function handleCopy() {
-    navigator.clipboard.writeText(fullUrl)
+    copyText(fullUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -499,6 +520,168 @@ const icons = {
       <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
     </svg>
   ),
+}
+
+// ---- SMB connection info section ----
+
+function SmbSection() {
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+
+  const password = getSavedPassword() ?? ''
+  const ip = window.location.hostname
+
+  const paths = [
+    { os: 'Windows', value: `\\\\${ip}\\Uploads` },
+    { os: 'macOS', value: `smb://${ip}/Uploads` },
+    { os: 'Linux', value: `//${ip}/Uploads` },
+  ]
+
+  function copyField(text: string, field: string) {
+    copyText(text)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 2000)
+  }
+
+  // Inline styles for the credential row and copy button, matching the existing admin aesthetic
+  const credRow: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    padding: '8px 12px', borderRadius: '10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+  }
+
+  const monoValue: React.CSSProperties = {
+    flex: 1, fontSize: '13px', fontWeight: 400,
+    color: 'rgba(255,255,255,0.85)',
+    fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", monospace',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    userSelect: 'all',
+  }
+
+  const copyBtn: React.CSSProperties = {
+    padding: '4px 10px', borderRadius: '8px', fontSize: '11px',
+    background: 'rgba(255,255,255,0.08)', border: 'none',
+    color: 'rgba(255,255,255,0.6)', cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+    transition: 'background 0.15s',
+    flexShrink: 0,
+  }
+
+  return (
+    <div style={{ marginBottom: '28px' }}>
+      <div style={sectionTitle}>
+        <div className="flex items-center gap-2">
+          {/* SMB/network icon */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" />
+            <rect x="2" y="14" width="20" height="8" rx="2" />
+            <line x1="6" y1="6" x2="6.01" y2="6" />
+            <line x1="6" y1="18" x2="6.01" y2="18" />
+          </svg>
+          <span>{t('admin_smb')}</span>
+          <span style={{ fontSize: '11px', fontWeight: 300, color: 'rgba(255,255,255,0.3)', marginLeft: '4px' }}>
+            {t('admin_smb_hint')}
+          </span>
+        </div>
+      </div>
+
+      <div style={glassCard}>
+        <div className="flex flex-col gap-3">
+
+          {/* Credentials row: login + password side by side */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {/* Login */}
+            <div>
+              <div style={{ ...labelStyle, marginBottom: '6px' }}>{t('admin_smb_login')}</div>
+              <div style={credRow}>
+                <span style={monoValue}>imgable</span>
+                <button
+                  style={copyBtn}
+                  onClick={() => copyField('imgable', 'login')}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                >
+                  {copiedField === 'login' ? t('admin_copied') : t('admin_copy')}
+                </button>
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <div style={{ ...labelStyle, marginBottom: '6px' }}>{t('admin_smb_password')}</div>
+              <div style={credRow}>
+                <span style={monoValue}>
+                  {passwordVisible ? password : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
+                </span>
+                {/* Show/hide toggle */}
+                <button
+                  onClick={() => setPasswordVisible(v => !v)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'rgba(255,255,255,0.4)', padding: '2px',
+                    display: 'flex', alignItems: 'center', flexShrink: 0,
+                  }}
+                  title={passwordVisible ? 'Hide' : 'Show'}
+                >
+                  {passwordVisible ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+                      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  style={copyBtn}
+                  onClick={() => copyField(password, 'password')}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                >
+                  {copiedField === 'password' ? t('admin_copied') : t('admin_copy')}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+          {/* Connection paths */}
+          <div>
+            <div style={{ ...labelStyle, marginBottom: '8px' }}>{t('admin_smb_path')}</div>
+            <div className="flex flex-col gap-2">
+              {paths.map(({ os, value }) => (
+                <div key={os} style={credRow}>
+                  <span style={{
+                    fontSize: '11px', fontWeight: 400,
+                    color: 'rgba(255,255,255,0.35)',
+                    minWidth: '52px', flexShrink: 0,
+                  }}>
+                    {os}
+                  </span>
+                  <span style={monoValue}>{value}</span>
+                  <button
+                    style={copyBtn}
+                    onClick={() => copyField(value, os)}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                  >
+                    {copiedField === os ? t('admin_copied') : t('admin_copy')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ============================================================
@@ -927,6 +1110,9 @@ export default function AdminPage({ onBack }: { onBack: () => void }) {
             />
           </div>
         </div>
+
+        {/* ======== SMB CONNECTION ======== */}
+        <SmbSection />
 
         {/* ======== PROCESSING METRICS ======== */}
         {processor && (
