@@ -138,12 +138,6 @@ pct set 100 --mp0 /DATA/Gallery,mp=/mnt/Gallery
 pct stop 100 && pct start 100
 ```
 
-Inside the container, fix permissions for Docker's UID remapping:
-
-```bash
-chmod -R 777 /mnt/Gallery
-```
-
 ### Install
 
 Follow the [Quick Start](#quick-start-any-linux) above, but set `DATA_PATH` to your mount:
@@ -151,6 +145,15 @@ Follow the [Quick Start](#quick-start-any-linux) above, but set `DATA_PATH` to y
 ```env
 DATA_PATH=/mnt/Gallery/imgable
 ```
+
+After `docker compose up -d`, fix permissions for Docker's UID remapping:
+
+```bash
+chmod -R 777 /mnt/Gallery/imgable
+docker compose restart
+```
+
+This must be done **after** the first start because Docker creates the directory structure on boot.
 
 ## Updating
 
