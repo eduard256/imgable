@@ -35,35 +35,6 @@ The heavy lifting happens once during import. After that, everything loads insta
 - **Reverse geocoding** -- automatic place names from GPS via Nominatim
 - **i18n** -- English and Russian
 
-## Architecture
-
-```
-                    ┌──────────────────────────────────────────────────────┐
-                    │                    Port 9812                         │
-  Browser ────────► │  API (Go) -- REST API + React SPA + file serving    │
-                    └──────┬────────────┬────────────┬────────────┬───────┘
-                           │            │            │            │
-                    ┌──────▼──┐  ┌──────▼──┐  ┌─────▼───┐  ┌────▼────┐
-  SMB share ──►     │ Scanner │  │Processor│  │ Places  │  │   AI    │
-  /uploads/         │  (Go)   │  │(Go+vips)│  │  (Go)   │  │(Python) │
-                    └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘
-                         │            │            │            │
-                    ┌────▼────┐  ┌────▼────────────▼────────────▼────┐
-                    │  Redis  │  │           PostgreSQL               │
-                    └─────────┘  └───────────────────────────────────┘
-```
-
-| Service | What it does | Port |
-|---|---|---|
-| **API** | REST API, serves React frontend, JWT auth, file serving | 9812 |
-| **Scanner** | Watches `/uploads` for new files, queues them via Redis | 8001 |
-| **Processor** | Creates WebP previews, extracts EXIF/GPS, generates blurhash | 8002 |
-| **Places** | Reverse geocoding via Nominatim, creates place albums | 8003 |
-| **AI** | Face detection (SCRFD), recognition (ArcFace), CLIP tags, OCR | 8004 |
-| **SMB** | Samba network share for drag-and-drop uploads | 445 |
-
-All internal services bind to `127.0.0.1`. Only port 9812 is exposed externally.
-
 ## Quick Start (any Linux)
 
 ### 1. Install Docker
