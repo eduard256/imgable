@@ -206,17 +206,6 @@ After first run, `DATA_PATH` will contain:
 | SMB | 128 MB | ~21 MB |
 | **Total** | **~4.5 GB** | **~170 MB** |
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 4, MapLibre GL |
-| API | Go, chi, pgx, JWT |
-| Processing | Go, libvips, ffmpeg |
-| AI | Python, FastAPI, ONNX Runtime, SCRFD, ArcFace, CLIP, RapidOCR |
-| Database | PostgreSQL 16, Redis 7 |
-| Queue | Asynq (Redis-based) |
-
 ## License
 
 MIT
