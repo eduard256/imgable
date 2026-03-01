@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-01
+
+### Added
+
+- SMB connection info section in admin dashboard (credentials, paths for Windows/macOS/Linux, copy buttons)
+- Welcome popup for empty gallery guiding users to upload via SMB
+- Clipboard fallback for HTTP contexts (where Clipboard API is unavailable)
+- SMB profile enabled by default in `.env.example`
+
 ## [0.1.1] - 2026-02-28
 
 ### Changed
