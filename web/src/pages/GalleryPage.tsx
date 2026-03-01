@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getSavedPassword } from '../lib/api'
 import { t, getLang } from '../lib/i18n'
 import MapPreview from '../components/MapPreview'
 import UploadManager from '../components/UploadManager'
@@ -95,6 +95,287 @@ function distributeToColumns(photos: IndexedPhoto[], colCount: number, colWidth:
   return columns
 }
 
+// ---- Clipboard helper (works over HTTP without Clipboard API) ----
+
+function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => copyFallback(text))
+  } else {
+    copyFallback(text)
+  }
+}
+
+function copyFallback(text: string) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
+// ---- Welcome popup — shown when gallery is empty ----
+
+function WelcomePopup({ onClose, onOpenAdmin }: { onClose: () => void; onOpenAdmin?: () => void }) {
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [fadeIn, setFadeIn] = useState(false)
+
+  const password = getSavedPassword() ?? ''
+  const ip = window.location.hostname
+
+  const paths = [
+    { os: 'Windows', value: `\\\\${ip}\\Uploads` },
+    { os: 'macOS', value: `smb://${ip}/Uploads` },
+    { os: 'Linux', value: `//${ip}/Uploads` },
+  ]
+
+  useEffect(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setFadeIn(true)))
+  }, [])
+
+  function copy(text: string, field: string) {
+    copyText(text)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 2000)
+  }
+
+  const credRow: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    padding: '8px 12px', borderRadius: '10px',
+    background: 'rgba(61,43,31,0.06)',
+    border: '1px solid rgba(61,43,31,0.08)',
+  }
+
+  const monoVal: React.CSSProperties = {
+    flex: 1, fontSize: '13px', fontWeight: 400,
+    color: '#3D2B1F',
+    fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", monospace',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    userSelect: 'all',
+  }
+
+  const copyBtnStyle: React.CSSProperties = {
+    padding: '4px 10px', borderRadius: '8px', fontSize: '11px',
+    background: 'rgba(61,43,31,0.08)', border: 'none',
+    color: 'rgba(61,43,31,0.5)', cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+    transition: 'background 0.15s',
+    flexShrink: 0,
+  }
+
+  const labelSt: React.CSSProperties = {
+    color: 'rgba(61,43,31,0.4)',
+    fontSize: '10px', fontWeight: 300,
+    letterSpacing: '0.8px',
+    textTransform: 'uppercase',
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{
+        background: 'rgba(0,0,0,0.2)',
+        backdropFilter: 'blur(4px)',
+        opacity: fadeIn ? 1 : 0,
+        transition: 'opacity 0.4s ease-out',
+        padding: '16px',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '480px',
+          maxHeight: 'calc(100dvh - 32px)',
+          overflowY: 'auto',
+          background: 'rgba(255,252,247,0.85)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(61,43,31,0.1)',
+          borderRadius: '20px',
+          padding: '28px 24px',
+          position: 'relative',
+          transform: fadeIn ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(8px)',
+          transition: 'transform 0.4s ease-out',
+        }}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: '14px', right: '14px',
+            width: '28px', height: '28px', borderRadius: '50%',
+            background: 'rgba(61,43,31,0.06)', border: 'none',
+            cursor: 'pointer', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            color: 'rgba(61,43,31,0.35)',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.12)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.06)' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
+        {/* Title */}
+        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+          <div style={{
+            fontSize: '22px', fontWeight: 500,
+            color: '#3D2B1F', letterSpacing: '-0.3px',
+            marginBottom: '8px',
+          }}>
+            {t('welcome_title')}
+          </div>
+          <div style={{ fontSize: '14px', color: 'rgba(61,43,31,0.6)', lineHeight: '1.5' }}>
+            {t('welcome_empty')}
+          </div>
+          <div style={{ fontSize: '13px', color: 'rgba(61,43,31,0.5)', lineHeight: '1.5', marginTop: '4px' }}>
+            {t('welcome_upload')}
+          </div>
+        </div>
+
+        {/* SMB credentials */}
+        <div style={{
+          background: 'rgba(61,43,31,0.03)',
+          borderRadius: '14px',
+          padding: '16px',
+          marginBottom: '16px',
+        }}>
+          {/* Login + Password row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+            <div>
+              <div style={{ ...labelSt, marginBottom: '5px' }}>{t('admin_smb_login')}</div>
+              <div style={credRow}>
+                <span style={monoVal}>imgable</span>
+                <button
+                  style={copyBtnStyle}
+                  onClick={() => copy('imgable', 'login')}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.14)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.08)' }}
+                >
+                  {copiedField === 'login' ? t('admin_copied') : t('admin_copy')}
+                </button>
+              </div>
+            </div>
+            <div>
+              <div style={{ ...labelSt, marginBottom: '5px' }}>{t('admin_smb_password')}</div>
+              <div style={credRow}>
+                <span style={monoVal}>
+                  {passwordVisible ? password : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
+                </span>
+                <button
+                  onClick={() => setPasswordVisible(v => !v)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'rgba(61,43,31,0.3)', padding: '2px',
+                    display: 'flex', alignItems: 'center', flexShrink: 0,
+                  }}
+                >
+                  {passwordVisible ? (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+                      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  style={copyBtnStyle}
+                  onClick={() => copy(password, 'password')}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.14)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.08)' }}
+                >
+                  {copiedField === 'password' ? t('admin_copied') : t('admin_copy')}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Paths */}
+          <div style={{ ...labelSt, marginBottom: '6px' }}>{t('admin_smb_path')}</div>
+          <div className="flex flex-col gap-2">
+            {paths.map(({ os, value }) => (
+              <div key={os} style={credRow}>
+                <span style={{ fontSize: '11px', color: 'rgba(61,43,31,0.3)', minWidth: '50px', flexShrink: 0 }}>
+                  {os}
+                </span>
+                <span style={monoVal}>{value}</span>
+                <button
+                  style={copyBtnStyle}
+                  onClick={() => copy(value, os)}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.14)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.08)' }}
+                >
+                  {copiedField === os ? t('admin_copied') : t('admin_copy')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* How it works */}
+        <div style={{ marginBottom: '14px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: '#3D2B1F', marginBottom: '6px' }}>
+            {t('welcome_how')}
+          </div>
+          <div style={{ fontSize: '12.5px', color: 'rgba(61,43,31,0.55)', lineHeight: '1.6' }}>
+            {t('welcome_how_text')}
+          </div>
+        </div>
+
+        {/* Warning */}
+        <div style={{
+          background: 'rgba(207,86,54,0.07)',
+          border: '1px solid rgba(207,86,54,0.12)',
+          borderRadius: '12px',
+          padding: '12px 14px',
+          marginBottom: '20px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(207,86,54,0.85)', marginBottom: '4px' }}>
+            {t('welcome_warning_title')}
+          </div>
+          <div style={{ fontSize: '12px', color: 'rgba(207,86,54,0.65)', lineHeight: '1.5' }}>
+            {t('welcome_warning_text')}
+          </div>
+        </div>
+
+        {/* Sync status button */}
+        <button
+          onClick={() => { onClose(); onOpenAdmin?.() }}
+          style={{
+            width: '100%',
+            padding: '12px',
+            borderRadius: '12px',
+            background: 'rgba(61,43,31,0.08)',
+            border: 'none',
+            color: '#3D2B1F',
+            fontSize: '13px',
+            fontWeight: 400,
+            cursor: 'pointer',
+            fontFamily: 'var(--font-sans)',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.14)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(61,43,31,0.08)' }}
+        >
+          {t('welcome_sync_status')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Scale presets: column counts
 const SCALE_PRESETS = [2, 3, 4, 5, 6, 8]
 const DEFAULT_SCALE_INDEX = 2
@@ -114,6 +395,8 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerIndex, setViewerIndex] = useState(0)
   const [viewerRect, setViewerRect] = useState<DOMRect | null>(null)
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const masonryRef = useRef<HTMLDivElement>(null)
@@ -162,7 +445,7 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
   // Initial load
   useEffect(() => {
-    loadPhotos(null)
+    loadPhotos(null).then(() => setInitialLoadDone(true))
 
     // Load people for bottom section — sorted by photo_count desc (API default)
     apiFetch('/api/v1/people?limit=30&offset=0').then(async (res) => {
@@ -1158,6 +1441,14 @@ export default function GalleryPage({ onOpenPeople, onOpenPerson, onOpenAlbums, 
 
       {/* Upload manager — handles drag & drop + toast progress */}
       <UploadManager ref={uploadRef} containerRef={scrollRef} />
+
+      {/* Welcome popup — shown when gallery has no photos */}
+      {initialLoadDone && photos.length === 0 && !welcomeDismissed && (
+        <WelcomePopup
+          onClose={() => setWelcomeDismissed(true)}
+          onOpenAdmin={onOpenAdmin}
+        />
+      )}
 
       {/* Photo viewer — fullscreen viewer overlay */}
       {viewerOpen && (
